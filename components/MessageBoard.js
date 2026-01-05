@@ -3,75 +3,95 @@ import { ethers } from "ethers";
 
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 
-const abi = [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"user","type":"address"},{"indexed":false,"internalType":"string","name":"message","type":"string"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"MessagePosted","type":"event"},{"inputs":[],"name":"getLatestMessage","outputs":[{"components":[{"internalType":"address","name":"user","type":"address"},{"internalType":"string","name":"text","type":"string"},{"internalType":"uint256","name":"timestamp","type":"uint256"}],"internalType":"struct BaseMessageBoard.Message","name":"","type":"tuple"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"getMessagesCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"string","name":"_text","type":"string"}],"name":"postMessage","outputs":[],"stateMutability":"payable","type":"function"}];
+// Правильный ABI ТОЛЬКО под твой контракт
+const abi = [
+  "function postMessage(string calldata _text) external payable",
+  "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
+  "function getMessagesCount() external view returns (uint256)",
+  "event MessagePosted(address indexed user, string message, uint256 timestamp)"
+];
 
 export default function MessageBoard() {
+  const [provider, setProvider] = useState(null);
+  const [contract, setContract] = useState(null);
   const [account, setAccount] = useState(null);
-  const [text, setText] = useState("");
-  const [count, setCount] = useState(0);
-  const [latest, setLatest] = useState(null);
+  const [message, setMessage] = useState("");
+  const [latestMessage, setLatestMessage] = useState("");
+  const [messagesCount, setMessagesCount] = useState(0);
+
+  useEffect(() => {
+    if (window.ethereum) {
+      const prov = new ethers.BrowserProvider(window.ethereum);
+      setProvider(prov);
+      const cont = new ethers.Contract(contractAddress, abi, prov);
+      setContract(cont);
+      loadOnChainData(cont);
+    }
+  }, []);
 
   async function connectWallet() {
-    if (!window.ethereum) {
-      alert("MetaMask not installed!");
-      return;
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      setAccount(accounts[0]);
+      const signer = await provider.getSigner();
+      const cont = new ethers.Contract(contractAddress, abi, signer);
+      setContract(cont);
+      setAccount(accounts[0]);
+    } catch (err) {
+      alert("Wallet connection failed");
     }
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const accs = await provider.send("eth_requestAccounts", []);
-    setAccount(accs[0]);
+  }
+
+  async function loadOnChainData(cont) {
+    try {
+      const count = await cont.getMessagesCount();
+      setMessagesCount(Number(count));
+
+      const latest = await cont.getLatestMessage();
+      setLatestMessage(latest.text);
+    } catch (err) {
+      console.error("Load error:", err);
+    }
   }
 
   async function publishMessage() {
-    if (!window.ethereum || !account) return;
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const contract = new ethers.Contract(contractAddress, abi, signer);
+    if (!contract || !account) {
+      alert("Connect wallet first!");
+      return;
+    }
 
     try {
-      await contract.postMessage(text, { value: ethers.parseEther("0.000005") });
-      setText("");
-      loadData();
+      const fee = ethers.parseEther("0.000005"); // как ты просила, маленькая комиссия
+      const tx = await contract.postMessage(message, { value: fee });
+      await tx.wait();
+      setMessage("");
+      loadOnChainData(contract);
     } catch (err) {
-      alert("Transaction failed: " + err.message);
+      console.error("Tx error:", err);
+      alert("Transaction failed");
     }
   }
 
-  async function loadData() {
-    if (!window.ethereum) return;
-    const provider = new ethers.JsonRpcProvider();
-    const contract = new ethers.Contract(contractAddress, abi, provider);
-
-    const c = await contract.getMessagesCount();
-    setCount(Number(c));
-
-    const l = await contract.getLatestMessage().catch(()=>null);
-    setLatest(l);
-  }
-
-  useEffect(() => {
-    loadData();
-  }, []);
-
   return (
-    <div className="p-4 max-w-xl mx-auto">
+    <div style={{ padding: "20px", fontFamily: "Arial" }}>
       <button onClick={connectWallet}>Connect Wallet</button>
 
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Write a message..."
-      />
+      <div style={{ marginTop: "10px" }}>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Write a message..."
+          style={{ width: "100%", padding: "10px" }}
+        />
+        <button onClick={publishMessage} style={{ marginTop: "10px" }}>
+          Publish
+        </button>
+      </div>
 
-      <button onClick={publishMessage}>Publish</button>
-
-      <h3>Total messages: {count}</h3>
-
-      {latest && (
-        <div>
-          <b>Latest:</b> {latest.text} <br />
-          <small>from {latest.user} at {Number(latest.timestamp)}</small>
-        </div>
-      )}
+      <h3>Messages on-chain: {messagesCount}</h3>
+      <div>
+        <b>Latest:</b> {latestMessage || "No messages yet..."}
+      </div>
     </div>
   );
 }
