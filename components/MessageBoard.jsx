@@ -12,12 +12,11 @@ const abi = [
 
 export default function MessageBoard() {
   const [provider, setProvider] = useState(null);
-  const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
   const [account, setAccount] = useState(null);
   const [message, setMessage] = useState("");
   const [latestMessage, setLatestMessage] = useState("");
-  const [messagesCount, setMessagesCount] = useState(0);
+  const [messagesCount, setLatestMessageCount] = useState(0);
 
   useEffect(() => {
     if (window.ethereum) {
@@ -29,59 +28,62 @@ export default function MessageBoard() {
   async function connectWallet() {
     try {
       const accs = await provider.send("eth_requestAccounts", []);
-      const s = await provider.getSigner();
-      const c = new ethers.Contract(contractAddress, abi, s);
-
+      const signer = await provider.getSigner();
+      const cont = new ethers.Contract(contractAddress, abi, signer);
       setAccount(accs[0]);
-      setSigner(s);
-      setContract(c);
-
-      await loadData(c);
+      setContract(cont);
+      await loadOnChainData(cont);
     } catch (err) {
       alert("Wallet connection failed");
     }
   }
 
-  async function loadData(c) {
+  async function loadOnChainData(cont) {
     try {
-      const count = await c.getMessagesCount();
-      setMessagesCount(Number(count));
-
-      const latest = await c.getLatestMessage();
-      setLatestMessage(latest.text);
+      const count = await cont.getMessagesCount();
+      setLatestMessageCount(Number(count));
+      if (count > 0) {
+        const latest = await cont.getLatestMessage();
+        setLatestMessage(latest.text);
+      }
     } catch (err) {
       console.error(err);
     }
   }
 
   async function publishMessage() {
-    if (!contract || !account) return;
-
+    if (!contract || !account) {
+      alert("Connect wallet first!");
+      return;
+    }
     try {
       const fee = ethers.parseEther("0.000005");
       const tx = await contract.postMessage(message, { value: fee });
       await tx.wait();
-
       setMessage("");
-      await loadData(contract);
+      await loadOnChainData(contract);
     } catch (err) {
       alert("Transaction failed");
     }
   }
 
   return (
-    <div className="p-5 max-w-xl mx-auto">
+    <div style={{ padding: "20px", fontFamily: "Arial" }}>
       <button onClick={connectWallet}>Connect Wallet</button>
 
-      <textarea
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder="Write a message..."
-      />
+      <div style={{ marginTop: "15px" }}>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Write your message..."
+          style={{ width: "100%", padding: "10px", minHeight: "80px", borderRadius: "6px" }}
+        />
+        <button onClick={publishMessage} style={{ marginTop: "10px", width: "100%" }}>
+          Publish
+        </button>
+      </div>
 
-      <button onClick={connectWallet}>Publish</button>
-
-      <h3>Total on-chain messages: {messagesCount}</h3>
+      <h3 style={{ marginTop: "20px" }}>Total messages on-chain: {messagesCount}</h3>
       <p><b>Latest:</b> {latestMessage || "No messages yet..."}</p>
     </div>
   );
