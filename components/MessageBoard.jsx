@@ -11,64 +11,86 @@ const abi = [
 ];
 
 export default function MessageBoard() {
-  const [contract, setContract] = useState(null);
   const [input, setInput] = useState("");
-  const [list, setList] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [account, setAccount] = useState("");
-  const [provider, setProvider] = useState(null);
+  const [signer, setSigner] = useState(null);
 
+  // Авто-загрузка сообщений из контракта при старте
   useEffect(() => {
     const init = async () => {
       if (!window.ethereum) return;
-      const p = new ethers.BrowserProvider(window.ethereum);
-      const network = await p.getNetwork();
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const network = await provider.getNetwork();
 
+      // Читаем только если сеть = Base
       if (network.chainId === 8453n) {
-        const c = new ethers.Contract(contractAddress, abi, p);
-        const count = await c.getMessagesCount();
-        const arr = [];
-        for (let i = 0; i < count; i++) {
-          const m = await c.messages(i);
-          arr.push({
-            from: m.user,
-            text: m.text,
-            time: new Date(Number(m.timestamp) * 1000).toLocaleString()
-          });
-        }
-        setList(arr);
-        c.on("MessagePosted", (user, message, timestamp) => {
-          setList(prev => [...prev, {
-            from: user,
-            text: message,
-            time: new Date(Number(timestamp) * 1000).toLocaleString()
-          }]);
+        const contract = new ethers.Contract(contractAddress, abi, provider);
+        await loadMessages(contract);
+
+        // Слушаем event глобально через provider, чтобы новые появлялись без reload
+        contract.on("MessagePosted", (user, message, timestamp) => {
+          setMessages(prev => [
+            ...prev,
+            { from: user, text: message, time: new Date(Number(timestamp) * 1000).toLocaleString() }
+          ]);
         });
       }
-      setProvider(p);
     };
     init();
   }, []);
 
+  async function loadMessages(contract) {
+    try {
+      const count = await contract.getMessagesCount();
+      const list = [];
+      for (let i = 0; i < count; i++) {
+        const m = await contract.messages(i);
+        list.push({
+          from: m.user,
+          text: m.text,
+          time: new Date(Number(m.timestamp) * 1000).toLocaleString()
+        });
+      }
+      setMessages(list);
+    } catch (err) {
+      console.error("Load failed:", err);
+    }
+  }
+
   async function connectWallet() {
-    if (!provider) return;
-    const signer = await provider.getSigner();
-    const c = new ethers.Contract(contractAddress, abi, signer);
-    setContract(c);
-    setAccount(await signer.getAddress());
+    if (!window.ethereum) {
+      alert("Wallet not found!");
+      return;
+    }
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const s = await provider.getSigner();
+      setSigner(s);
+      setAccount(await s.getAddress());
+    } catch (err) {
+      console.error("Connect failed:", err);
+    }
   }
 
   async function publishMessage() {
-    if (!contract) {
-      alert("Connect wallet first");
+    if (!window.ethereum) {
+      alert("Wallet not found!");
       return;
     }
     if (!input.trim()) return;
     try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, abi, signer);
+
       const tx = await contract.postMessage(input);
       await tx.wait();
+
+      alert("Message posted!");
       setInput("");
     } catch (err) {
-      console.error("Publish failed:", err);
+      console.error("TX failed:", err);
       alert("Transaction failed");
     }
   }
@@ -76,6 +98,7 @@ export default function MessageBoard() {
   return (
     <div style={{ padding: 20, fontFamily: "Arial" }}>
       <h2>Base Message Board</h2>
+
       {!account && <button onClick={connectWallet}>Connect Wallet</button>}
       {account && <p>Connected: {account}</p>}
 
@@ -84,8 +107,8 @@ export default function MessageBoard() {
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder="Write message..."
-            style={{ width: "100%", minHeight: 60, marginTop: 10 }}
+            placeholder="Write a message..."
+            style={{ width: "100%", minHeight: 60, marginTop: 10, padding: 10 }}
           />
           <button onClick={publishMessage} style={{ width: "100%", marginTop: 10 }}>
             Publish
@@ -94,10 +117,10 @@ export default function MessageBoard() {
       )}
 
       <h3>On-chain messages:</h3>
-      {list.length === 0 && <p>No messages found</p>}
-      {list.map((m, i) => (
+      {messages.length === 0 && <p>No messages yet</p>}
+      {messages.map((m, i) => (
         <div key={i} style={{ borderBottom: "1px solid #ddd", padding: "8px 0" }}>
-          <b>{m.from.slice(0,6)}...</b>: {m.text}
+          <b>{m.from.slice(0, 6)}...</b>: {m.text}
           <div style={{ fontSize: 12, opacity: 0.7 }}>{m.time}</div>
         </div>
       ))}
