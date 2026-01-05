@@ -1,15 +1,7 @@
 {
-  "name": "base-message-board-app",
+  "name": "base-message-board",
   "private": false,
-    "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
-  },
-  "dependencies": {
-  "react": "18.2.0",
-  "react-dom": "18.2.0",
-  "next": "16.1.1",
-  "ethers": "6.7.1"
-}
+  "scripts": {
+    "build": "echo done"
+  }
 }
