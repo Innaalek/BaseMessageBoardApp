@@ -1,6 +1,9 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import React from "react";
+import ReactDOM from "react-dom/client";
+import MessageBoard from "./components/MessageBoard";
 
-export default defineConfig({
-  plugins: [react()],
-});
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <MessageBoard />
+  </React.StrictMode>
+);
