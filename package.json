@@ -2,7 +2,8 @@
   "name": "base-message-board-app",
   "private": false,
   "scripts": {
-    "build": "next build && next export",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start"
   },
   "dependencies": {
