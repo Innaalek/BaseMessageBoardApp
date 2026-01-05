@@ -1,9 +1,16 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import MessageBoard from "./components/MessageBoard";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <MessageBoard />
-  </React.StrictMode>
-);
+export default defineConfig({
+  plugins: [react()],
+  esbuild: {
+    loader: "jsx",
+    include: /.*\.jsx?$/, // разрешает JSX в .js/.jsx
+  },
+  build: {
+    outDir: "dist",
+    rollupOptions: {
+      input: "./index.html",
+    },
+  },
+});
