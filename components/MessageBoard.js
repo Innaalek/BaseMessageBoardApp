@@ -5,8 +5,7 @@ const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 
 const abi = [
   "event MessagePosted(address indexed user, string message, uint256 timestamp)",
-  "function postMessage(string calldata _text) external",
-  "function messages(uint256) view returns (address user, string text, uint256 timestamp)",
+  "function postMessage(string calldata _text) external payable",
   "function getMessagesCount() external view returns (uint256)",
   "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))"
 ];
@@ -14,104 +13,85 @@ const abi = [
 export default function MessageBoard() {
   const [provider, setProvider] = useState(null);
   const [contract, setContract] = useState(null);
+  const [account, setAccount] = useState(null);
   const [message, setMessage] = useState("");
-  const [messagesList, setMessagesList] = useState([]);
+  const [latestMessage, setLatestMessage] = useState("");
 
   useEffect(() => {
     if (window.ethereum) {
-      const p = new ethers.BrowserProvider(window.ethereum);
-      setProvider(p);
-      const c = new ethers.Contract(contractAddress, abi, p);
-      setContract(c);
-      loadMessages(c);
+      const prov = new ethers.BrowserProvider(window.ethereum);
+      setProvider(prov);
+      const cont = new ethers.Contract(contractAddress, abi, prov);
+      setContract(cont);
     }
   }, []);
 
-  async function loadMessages(c) {
-    if (!c) return;
-    const count = await c.getMessagesCount();
-    const list = [];
-
-    for (let i = 0; i < count; i++) {
-      const m = await c.messages(i);
-      list.push({
-        from: m.user,
-        text: m.text,
-        time: new Date(Number(m.timestamp) * 1000).toLocaleString(),
-      });
+  async function connectWallet() {
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      setAccount(accounts[0]);
+      await loadLatestMessage();
+    } catch (e) {
+      alert("Wallet connection failed");
     }
-
-    setMessagesList(list.reverse());
   }
 
-  async function connectWallet() {
-    if (!provider) return;
-    const network = await provider.getNetwork();
-    const chainId = Number(network.chainId);
-
-    if (chainId !== 8453) {
-      try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x2105" }],
-        });
-      } catch {
-        alert("Переключи сеть на Base Mainnet в кошельке!");
-        return;
-      }
+  async function loadLatestMessage() {
+    if (!contract) return;
+    try {
+      const msg = await contract.getLatestMessage();
+      setLatestMessage(msg.text);
+    } catch (e) {
+      console.error(e);
     }
-
-    const signer = await provider.getSigner();
-    const c = new ethers.Contract(contractAddress, abi, signer);
-    setContract(c);
-    loadMessages(c);
   }
 
   async function sendMessage() {
-    if (!contract || !provider.getSigner) {
-      alert("Сначала подключи кошелек!");
+    if (!account || !contract || !provider) {
+      alert("Connect wallet first!");
       return;
     }
-    if (!message.trim()) return;
+    if (!message.trim()) {
+      alert("Message is empty!");
+      return;
+    }
 
     const signer = await provider.getSigner();
-    const c = new ethers.Contract(contractAddress, abi, signer);
+    const contractWithSigner = contract.connect(signer);
 
     try {
-      const tx = await c.postMessage(message, {
-        value: "0x1c6bf52634000", // маленькая комиссия (~0.000005 ETH)
+      const tx = await contractWithSigner.postMessage(message, {
+        value: ethers.parseEther("0.000005") // маленькая комиссия, как ты просила
       });
       await tx.wait();
       setMessage("");
-      loadMessages(c);
-    } catch (err) {
-      console.error(err);
-      alert("Ошибка отправки транзакции!");
+      await loadLatestMessage();
+    } catch (e) {
+      console.error(e);
+      alert("Transaction failed");
     }
   }
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial" }}>
-      <button onClick={connectWallet}>Connect Wallet</button>
+    <div className="p-5">
+      <button onClick={connectWallet} className="px-4 py-2 border rounded">
+        Connect Wallet
+      </button>
 
-      <div style={{ marginTop: "20px" }}>
+      <div className="mt-4">
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Write a message..."
-          style={{ width: "100%", padding: "10px" }}
+          placeholder="Write your message here..."
+          className="w-full p-2 border rounded"
         />
-        <button onClick={sendMessage}>Publish</button>
+        <button onClick={sendMessage} className="px-4 py-2 border rounded mt-2">
+          Publish
+        </button>
       </div>
 
-      <h3>Messages on-chain:</h3>
-      <ul>
-        {messagesList.map((m, i) => (
-          <li key={i}>
-            <strong>{m.from.slice(0, 6)}...</strong>: {m.text} <em>({m.time})</em>
-          </li>
-        ))}
-      </ul>
+      <h3 className="mt-5 text-lg font-bold">Latest message on-chain:</h3>
+      <p className="mt-2">{latestMessage || "No messages yet..."}</p>
     </div>
   );
 }
