@@ -1,14 +1,14 @@
-"use client";
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 
 const abi = [
-  "event MessagePosted(address indexed user, string text, uint256 timestamp)",
-  "function postMessage(string calldata _text) external payable",
-  "function messages(uint256) view returns (address user, string text, uint256 timestamp)",
-  "function getMessagesCount() external view returns (uint256)"
+  "event MessagePosted(address indexed user, string message, uint256 timestamp)",
+  "function postMessage(string calldata _text) external",
+  "function messages(uint256) public view returns (address user, string text, uint256 timestamp)",
+  "function getMessagesCount() external view returns (uint256)",
+  "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))"
 ];
 
 export default function MessageBoard() {
@@ -18,47 +18,44 @@ export default function MessageBoard() {
 
   async function connectWallet() {
     if (!window.ethereum) {
-      alert("Install MetaMask or Rabby Wallet!");
+      alert("Install MetaMask or Rabby first!");
       return;
     }
 
     const provider = new ethers.BrowserProvider(window.ethereum);
-    const network = await provider.getNetwork();
-
-    // Проверяем сеть Base
-    if (network.chainId !== 8453n) {
-      try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x2105" }],
-        });
-      } catch {
-        alert("Please switch to Base Mainnet in your wallet");
-        return;
-      }
-    }
-
     const signer = await provider.getSigner();
     const c = new ethers.Contract(contractAddress, abi, signer);
     setContract(c);
     loadMessages(c);
+    listenEvents(c);
   }
 
   async function loadMessages(c) {
     if (!c) return;
     const count = await c.getMessagesCount();
-    const arr = [];
+    const msgs = [];
 
-    for (let i = 0; i < Number(count); i++) {
+    for (let i = 0; i < count; i++) {
       const m = await c.messages(i);
-      arr.push({
+      msgs.push({
         from: m.user,
         text: m.text,
         time: new Date(Number(m.timestamp) * 1000).toLocaleString(),
       });
     }
 
-    setMessages(arr);
+    setMessages(msgs.reverse());
+  }
+
+  function listenEvents(c) {
+    if (!c) return;
+    c.on("MessagePosted", (user, message, timestamp) => {
+      setMessages((prev) => [{
+        from: user,
+        text: message,
+        time: new Date(Number(timestamp) * 1000).toLocaleString(),
+      }, ...prev]);
+    });
   }
 
   async function sendMessage() {
@@ -69,24 +66,13 @@ export default function MessageBoard() {
     if (!message.trim()) return;
 
     try {
-      const tx = await contract.postMessage(message, {
-        value: ethers.parseEther("0.000001"), // комиссия
-      });
+      const tx = await contract.postMessage(message);
       await tx.wait();
       setMessage("");
-      loadMessages(contract);
     } catch (err) {
-      console.error(err);
       alert("Transaction failed");
     }
   }
-
-  // Подписка на событие
-  useEffect(() => {
-    if (!contract) return;
-    contract.on("MessagePosted", () => loadMessages(contract));
-    return () => contract.removeAllListeners();
-  }, [contract]);
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial" }}>
