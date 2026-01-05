@@ -1,8 +1,7 @@
 {
   "name": "base-message-board-app",
   "private": false,
-  "type": "module",
-  "scripts": {
+    "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
