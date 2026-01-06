@@ -4,8 +4,7 @@ import { ethers } from "ethers";
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 
 const abi = [
-  "function postMessage(string calldata _text) external payable",
-  "function POST_FEE() external view returns (uint256)",
+  "function postMessage(string calldata _text) external",
   "function getMessagesCount() external view returns (uint256)",
   "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
   "function messages(uint256 index) external view returns (tuple(address user, string text, uint256 timestamp))",
@@ -42,45 +41,30 @@ export default function MessageBoard() {
   }
 
   async function handlePublish() {
-  try {
-    if (!window.ethereum) {
-      alert("MetaMask не найден");
-      return;
+    try {
+      if (!window.ethereum) {
+        alert("MetaMask not found");
+        return;
+      }
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const contract = new ethers.Contract(contractAddress, abi, signer);
+      const tx = await contract.postMessage(text);
+
+      console.log("TX sent:", tx.hash);
+      await tx.wait();
+      console.log("TX confirmed");
+
+      loadMessages();
+      setText("");
+    } catch (err) {
+      console.error(err);
+      alert("Transaction failed");
     }
-
-    if (!text || text.trim() === "") {
-      alert("Сообщение пустое");
-      return;
-    }
-
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-
-    const contract = new ethers.Contract(
-      contractAddress,
-      abi,
-      signer
-    );
-
-    // комиссия из контракта
-    const fee = await contract.POST_FEE();
-
-    const tx = await contract.postMessage(text, {
-      value: fee
-    });
-
-    console.log("TX sent:", tx.hash);
-    await tx.wait();
-    console.log("TX confirmed");
-
-    setText("");
-    await loadMessages(); // обновляем список
-
-  } catch (err) {
-    console.error(err);
-    alert("Transaction failed: " + (err.reason || err.message));
   }
-}
+
   useEffect(() => {
     loadMessages();
   }, []);
@@ -103,6 +87,7 @@ export default function MessageBoard() {
       <button onClick={handlePublish}>Publish</button>
 
       <h2>On-chain messages:</h2>
+
       {messagesList.length === 0 && <p>No messages found</p>}
 
       {messagesList.map((m, i) => (
