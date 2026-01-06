@@ -2,44 +2,13 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
+
 const abi = [
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
-      { "indexed": false, "internalType": "string", "name": "message", "type": "string" },
-      { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" }
-    ],
-    "name": "MessagePosted",
-    "type": "event"
-  },
-  {
-    "inputs": [], "name": "getLatestMessage",
-    "outputs": [{ "internalType": "string", "name": "", "type": "string" }],
-    "stateMutability": "view", "type": "function"
-  },
-  {
-    "inputs": [], "name": "getMessagesCount",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "stateMutability": "view", "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "name": "messages",
-    "outputs": [
-      { "internalType": "address", "name": "user", "type": "address" },
-      { "internalType": "string", "name": "text", "type": "string" },
-      { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
-    ],
-    "stateMutability": "view", "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "string", "name": "_text", "type": "string" }],
-    "name": "postMessage",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
+  "function postMessage(string calldata _text) external",
+  "function getMessagesCount() external view returns (uint256)",
+  "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
+  "function messages(uint256 index) external view returns (tuple(address user, string text, uint256 timestamp))",
+  "event MessagePosted(address indexed user, string message, uint256 timestamp)"
 ];
 
 export default function MessageBoard() {
@@ -66,19 +35,21 @@ export default function MessageBoard() {
     }
 
     setMessagesList(items);
+
     const last = await contract.getLatestMessage();
-    setLatest(last);
+    setLatest(last.text);
   }
 
   async function publish() {
-    if (!window.ethereum || !text) return;
+    if (!window.ethereum || !text.trim()) return;
 
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
     const contract = new ethers.Contract(contractAddress, abi, signer);
 
     try {
-      await contract.postMessage(text);
+      const tx = await contract.postMessage(text);
+      await tx.wait();
       setText("");
       loadMessages();
     } catch (e) {
@@ -91,16 +62,19 @@ export default function MessageBoard() {
   }, []);
 
   return (
-    <div className="p-4">
+    <div style={{ padding: 20 }}>
       <button onClick={() => window.ethereum.request({ method: "eth_requestAccounts" })}>
         Connect Wallet
       </button>
 
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Write a message..."
-      />
+      <div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Write a message..."
+          style={{ width: "100%", padding: 10 }}
+        />
+      </div>
 
       <button onClick={publish}>Publish</button>
 
@@ -108,11 +82,18 @@ export default function MessageBoard() {
       {messagesList.length === 0 && <p>No messages found</p>}
 
       {messagesList.map((m, i) => (
-        <div key={i} className="border p-2 my-2">
+        <div key={i} style={{ border: "1px solid #ccc", padding: 10, marginTop: 10 }}>
           <p>{m.text}</p>
-          <small>from {m.user} — {m.time}</small>
+          <small>from {m.user.slice(0, 6)}... — {m.time}</small>
         </div>
       ))}
+
+      {latest && (
+        <div style={{ marginTop: 20 }}>
+          <h3>Latest message:</h3>
+          <p>{latest}</p>
+        </div>
+      )}
     </div>
   );
 }
