@@ -2,112 +2,115 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
-
 const abi = [
-  "event MessagePosted(address indexed user, string message, uint256 timestamp)",
-  "function postMessage(string calldata _text) external payable",
-  "function getMessagesCount() external view returns (uint256)",
-  "function messages(uint256) external view returns (address user, string text, uint256 timestamp)"
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
+      { "indexed": false, "internalType": "string", "name": "message", "type": "string" },
+      { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" }
+    ],
+    "name": "MessagePosted",
+    "type": "event"
+  },
+  {
+    "inputs": [], "name": "getLatestMessage",
+    "outputs": [{ "internalType": "string", "name": "", "type": "string" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [], "name": "getMessagesCount",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "name": "messages",
+    "outputs": [
+      { "internalType": "address", "name": "user", "type": "address" },
+      { "internalType": "string", "name": "text", "type": "string" },
+      { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
+    ],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "string", "name": "_text", "type": "string" }],
+    "name": "postMessage",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
 ];
 
 export default function MessageBoard() {
-  const [provider, setProvider] = useState(null);
-  const [signer, setSigner] = useState(null);
-  const [contract, setContract] = useState(null);
-  const [input, setInput] = useState("");
   const [messagesList, setMessagesList] = useState([]);
-  const [account, setAccount] = useState("");
+  const [text, setText] = useState("");
+  const [latest, setLatest] = useState("");
 
-  useEffect(() => {
+  async function loadMessages() {
     if (!window.ethereum) return;
-    const p = new ethers.BrowserProvider(window.ethereum);
-    setProvider(p);
 
-    const c = new ethers.Contract(contractAddress, abi, p);
-    loadMessages(c);
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const contract = new ethers.Contract(contractAddress, abi, provider);
 
-    c.on("MessagePosted", (user, message, timestamp) => {
-      setMessagesList(prev => [...prev, {
-        from: user,
-        text: message,
-        time: new Date(Number(timestamp) * 1000).toLocaleString()
-      }]);
-    });
+    const count = await contract.getMessagesCount();
+    const items = [];
 
-    setContract(c);
-  }, []);
+    for (let i = 0; i < count; i++) {
+      const msg = await contract.messages(i);
+      items.push({
+        user: msg.user,
+        text: msg.text,
+        time: new Date(Number(msg.timestamp) * 1000).toLocaleString()
+      });
+    }
 
-  async function connectWallet() {
-    if (!provider) return;
-    const s = await provider.getSigner();
-    setSigner(s);
-    const addr = await s.getAddress();
-    setAccount(addr);
-    const c = new ethers.Contract(contractAddress, abi, s);
-    setContract(c);
-    await loadMessages(c);
+    setMessagesList(items);
+    const last = await contract.getLatestMessage();
+    setLatest(last);
   }
 
-  async function loadMessages(c) {
-    try {
-      const count = await c.getMessagesCount();
-      const arr = [];
-      for (let i = 0; i < count; i++) {
-        const m = await c.messages(i);
-        arr.push({
-          from: m.user,
-          text: m.text,
-          time: new Date(Number(m.timestamp) * 1000).toLocaleString()
-        });
-      }
-      setMessagesList(arr);
-    } catch (err) {
-      console.error("Read error:", err);
-    }
-  }
+  async function publish() {
+    if (!window.ethereum || !text) return;
 
-  async function publishMessage() {
-    if (!contract || !signer) {
-      alert("Connect wallet first!");
-      return;
-    }
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, abi, signer);
+
     try {
-      const fee = ethers.parseEther("0.000005");
-      const tx = await contract.postMessage(input, { value: fee });
-      await tx.wait();
-      setInput("");
-    } catch (err) {
-      console.error("TX error:", err);
+      await contract.postMessage(text);
+      setText("");
+      loadMessages();
+    } catch (e) {
       alert("Transaction failed");
     }
   }
 
+  useEffect(() => {
+    loadMessages();
+  }, []);
+
   return (
-    <div style={{ padding: 20, fontFamily: "Arial" }}>
-      {!account && <button onClick={connectWallet}>Connect Wallet</button>}
-      {account && <p>Connected: {account}</p>}
-
-      <textarea
-        value={input}
-        onChange={e => {
-          setInput(e.target.value);
-        }}
-        placeholder="Write a message..."
-        style={{ width: "100%", minHeight: 60, marginTop: 10 }}
-      />
-
-      <button onClick={publishMessage} style={{ width: "100%", marginTop: 10 }}>
-        Publish
+    <div className="p-4">
+      <button onClick={() => window.ethereum.request({ method: "eth_requestAccounts" })}>
+        Connect Wallet
       </button>
 
-      <h3>On-chain messages:</h3>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Write a message..."
+      />
 
+      <button onClick={publish}>Publish</button>
+
+      <h2>On-chain messages:</h2>
       {messagesList.length === 0 && <p>No messages found</p>}
 
       {messagesList.map((m, i) => (
-        <div key={i} style={{ borderBottom: "1px solid #ddd", padding: "8px 0" }}>
-          <b>{m.from.slice(0,6)}...</b>: {m.text}
-          <div style={{ fontSize: 12, color: "#555" }}>{m.time}</div>
+        <div key={i} className="border p-2 my-2">
+          <p>{m.text}</p>
+          <small>from {m.user} — {m.time}</small>
         </div>
       ))}
     </div>
