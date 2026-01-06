@@ -43,25 +43,41 @@ export default function MessageBoard() {
   async function handlePublish() {
   try {
     if (!window.ethereum) {
-      alert("Wallet not found");
+      alert("MetaMask не найден");
+      return;
+    }
+
+    if (!text || text.trim() === "") {
+      alert("Сообщение пустое");
       return;
     }
 
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
 
-    const contract = new ethers.Contract(contractAddress, abi, signer);
+    const contract = new ethers.Contract(
+      contractAddress,
+      abi,
+      signer
+    );
 
-    const tx = await contract.postMessage(text); // ← берём из state
+    // комиссия из контракта
+    const fee = await contract.POST_FEE();
+
+    const tx = await contract.postMessage(text, {
+      value: fee
+    });
+
     console.log("TX sent:", tx.hash);
     await tx.wait();
-    console.log("TX confirmed!");
+    console.log("TX confirmed");
 
-    setText(""); // очистка поля
-    loadMessages(); // перезагрузка сообщений с чейна
+    setText("");
+    await loadMessages(); // обновляем список
+
   } catch (err) {
     console.error(err);
-    alert("Transaction failed: " + err.message);
+    alert("Transaction failed: " + (err.reason || err.message));
   }
 }
   useEffect(() => {
