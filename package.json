@@ -1,18 +1,13 @@
-{
-  "name": "base-message-board-app",
-  "private": false,
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "ethers": "6.7.1"
-  },
-  "devDependencies": {
-    "vite": "6.4.1",
-    "@vitejs/plugin-react": "4.3.4"
-  }
-}
+Running build in Washington, D.C., USA (East) – iad1
+Build machine configuration: 2 cores, 8 GB
+Cloning github.com/Innaalek/BaseMessageBoardApp (Branch: main, Commit: 1f64ee2)
+Skipping build cache, deployment was triggered without cache.
+Cloning completed: 215.000ms
+Running "vercel build"
+Vercel CLI 50.1.5
+Installing dependencies...
+added 72 packages in 13s
+12 packages are looking for funding
+  run `npm fund` for details
+Warning: Could not identify Next.js version, ensure it is defined as a project dependency.
+Error: No Next.js version detected. Make sure your package.json has "next" in either "dependencies" or "devDependencies". Also check your Root Directory setting matches the directory of your package.json file.
