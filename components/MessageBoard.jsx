@@ -4,7 +4,8 @@ import { ethers } from "ethers";
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 
 const abi = [
-  "function postMessage(string calldata _text) external",
+  "function postMessage(string calldata _text) external payable",
+  "function POST_FEE() external view returns (uint256)",
   "function getMessagesCount() external view returns (uint256)",
   "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
   "function messages(uint256 index) external view returns (tuple(address user, string text, uint256 timestamp))",
