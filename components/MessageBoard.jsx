@@ -43,31 +43,22 @@ export default function MessageBoard() {
   async function handlePublish() {
   try {
     if (!window.ethereum) {
-      alert("MetaMask не найден");
+      alert("Wallet not found");
       return;
     }
 
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
 
-    const contract = new ethers.Contract(
-      "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2",
-      [
-        "function postMessage(string calldata _text) external",
-        "event MessagePosted(address indexed user, string message, uint256 timestamp)",
-        "function getMessagesCount() external view returns (uint256)",
-        "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))"
-      ],
-      signer
-    );
+    const contract = new ethers.Contract(contractAddress, abi, signer);
 
-    const tx = await contract.postMessage(messageText);
+    const tx = await contract.postMessage(text); // ← берём из state
     console.log("TX sent:", tx.hash);
-
     await tx.wait();
-    console.log("TX confirmed");
+    console.log("TX confirmed!");
 
-    loadLatest();
+    setText(""); // очистка поля
+    loadMessages(); // перезагрузка сообщений с чейна
   } catch (err) {
     console.error(err);
     alert("Transaction failed: " + err.message);
