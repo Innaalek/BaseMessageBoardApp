@@ -92,7 +92,7 @@ export default function MessageBoard() {
         />
       </div>
 
-      <button onClick={publish}>Publish</button>
+      <button onClick={handlePublish}>Publish</button>
 
       <h2>On-chain messages:</h2>
       {messagesList.length === 0 && <p>No messages found</p>}
