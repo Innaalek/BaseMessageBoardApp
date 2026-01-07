@@ -72,7 +72,7 @@ export default function MessageBoard() {
 
   return (
     <div style={{ padding: 20 }}>
-      <button onClick={() => window.ethereum.request({ method: "eth_requestAccounts" })}>
+      <button onClick={connectWallet}>Connect Wallet</button>
         Connect Wallet
       </button>
 
