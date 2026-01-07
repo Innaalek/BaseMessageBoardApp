@@ -4,7 +4,7 @@ import { ethers } from "ethers";
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 
 const abi = [
-  "function postMessage(string calldata _text) external",
+  "function postMessage(string calldata _text) external payable",
   "function getMessagesCount() external view returns (uint256)",
   "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
   "function messages(uint256 index) external view returns (tuple(address user, string text, uint256 timestamp))",
@@ -15,68 +15,80 @@ export default function MessageBoard() {
   const [messagesList, setMessagesList] = useState([]);
   const [text, setText] = useState("");
   const [latest, setLatest] = useState("");
+  const [userWallet, setUserWallet] = useState(null);
+  const [contractInstance, setContractInstance] = useState(null);
 
-  async function loadMessages() {
-    if (!window.ethereum) return;
+  async function connectWallet() {
+    try {
+      if (!window.ethereum) {
+        alert("Wallet not found");
+        return;
+      }
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      setUserWallet(address);
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const contract = new ethers.Contract(contractAddress, abi, provider);
+      const contract = new ethers.Contract(contractAddress, abi, signer);
+      setContractInstance(contract);
 
-    const count = await contract.getMessagesCount();
-    const items = [];
-
-    for (let i = 0; i < count; i++) {
-      const msg = await contract.messages(i);
-      items.push({
-        user: msg.user,
-        text: msg.text,
-        time: new Date(Number(msg.timestamp) * 1000).toLocaleString()
-      });
+      alert("Wallet connected: " + address);
+      loadMessages(contract);
+    } catch (err) {
+      console.error(err);
+      alert("Wallet connect failed: " + err.message);
     }
-
-    setMessagesList(items);
-
-    const last = await contract.getLatestMessage();
-    setLatest(last.text);
   }
 
- async function handlePublish() {
-  try {
-    if (!window.ethereum) {
-      alert("Wallet not found");
-      return;
+  async function loadMessages(contract) {
+    try {
+      const count = await contract.getMessagesCount();
+      const items = [];
+      for (let i = 0; i < count; i++) {
+        const msg = await contract.messages(i);
+        items.push({
+          user: msg.user,
+          text: msg.text,
+          time: new Date(Number(msg.timestamp) * 1000).toLocaleString()
+        });
+      }
+      setMessagesList(items);
+
+      const last = await contract.getLatestMessage();
+      setLatest(last.text);
+    } catch (err) {
+      console.error("Read error:", err);
     }
-
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-
-    const contract = new ethers.Contract(contractAddress, abi, signer);
-
-    const tx = await contract.postMessage(text); // ← берём текст из state
-    console.log("TX sent:", tx.hash);
-
-    await tx.wait();
-    console.log("TX confirmed!");
-
-    setText("");
-    await loadMessages(); // обновляем UI после записи
-
-  } catch (err) {
-    console.error(err);
-    alert("Transaction failed: " + err.message);
   }
-}
+
+  async function handlePublish() {
+    try {
+      if (!contractInstance) {
+        alert("Connect wallet first!");
+        return;
+      }
+      const tx = await contractInstance.postMessage(text, { value: 0 });
+      await tx.wait();
+      setText("");
+      loadMessages(contractInstance);
+    } catch (err) {
+      console.error(err);
+      alert("Transaction failed: " + err.message);
+    }
+  }
+
   useEffect(() => {
-    loadMessages();
-  }, []);
+    if (window.ethereum && contractInstance) {
+      loadMessages(contractInstance);
+    }
+  }, [contractInstance]);
 
   return (
-    <div style={{ padding: 20 }}>
+    <div style={{ padding: 20, fontFamily: "Arial" }}>
       <button onClick={connectWallet}>Connect Wallet</button>
-        Connect Wallet
-      </button>
 
-      <div>
+      <div style={{ marginTop: 20 }}>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -85,7 +97,7 @@ export default function MessageBoard() {
         />
       </div>
 
-      <button onClick={handlePublish}>Publish</button>
+      <button onClick={handlePublish} style={{ marginTop: 10 }}>Publish</button>
 
       <h2>On-chain messages:</h2>
 
