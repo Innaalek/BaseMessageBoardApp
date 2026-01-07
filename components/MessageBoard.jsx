@@ -40,31 +40,32 @@ export default function MessageBoard() {
     setLatest(last.text);
   }
 
-  async function handlePublish() {
-    try {
-      if (!window.ethereum) {
-        alert("MetaMask not found");
-        return;
-      }
-
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-
-      const contract = new ethers.Contract(contractAddress, abi, signer);
-      const tx = await contract.postMessage(text);
-
-      console.log("TX sent:", tx.hash);
-      await tx.wait();
-      console.log("TX confirmed");
-
-      loadMessages();
-      setText("");
-    } catch (err) {
-      console.error(err);
-      alert("Transaction failed");
+ async function handlePublish() {
+  try {
+    if (!window.ethereum) {
+      alert("Wallet not found");
+      return;
     }
-  }
 
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+
+    const contract = new ethers.Contract(contractAddress, abi, signer);
+
+    const tx = await contract.postMessage(text); // ← берём текст из state
+    console.log("TX sent:", tx.hash);
+
+    await tx.wait();
+    console.log("TX confirmed!");
+
+    setText("");
+    await loadMessages(); // обновляем UI после записи
+
+  } catch (err) {
+    console.error(err);
+    alert("Transaction failed: " + err.message);
+  }
+}
   useEffect(() => {
     loadMessages();
   }, []);
