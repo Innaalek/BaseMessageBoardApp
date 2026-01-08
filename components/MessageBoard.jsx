@@ -4,30 +4,53 @@ import { ethers } from "ethers";
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 
 const abi = [
-  "function postMessage(string calldata _text) external payable",
+  "function postMessage(string calldata _text) external",
   "function getMessagesCount() external view returns (uint256)",
-  "function messages(uint256 index) external view returns (tuple(address user, string text, uint256 timestamp))",
-  "event MessagePosted(address indexed user, string message, uint256 timestamp)"
+  "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
+  "function messages(uint256 index) external view returns (address user, string text, uint256 timestamp)"
 ];
 
 export default function MessageBoard() {
+  const [contractInstance, setContractInstance] = useState(null);
   const [text, setText] = useState("");
   const [messagesList, setMessagesList] = useState([]);
   const [userWallet, setUserWallet] = useState(null);
-  const [contractInstance, setContractInstance] = useState(null);
 
   async function connectWallet() {
-    if (!window.ethereum) {
-      alert("Install MetaMask or Rabby!");
-      return;
-    }
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const address = await signer.getAddress();
-    setUserWallet(address);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await window.ethereum.request({ method: "eth_requestAccounts" });
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      setUserWallet(address);
 
-    const contract = new ethers.Contract(contractAddress, abi, signer);
-    setContractInstance(contract);
+      const contract = new ethers.Contract(contractAddress, abi, signer);
+      setContractInstance(contract);
+
+      await loadMessages(contract);
+    } catch (err) {
+      alert("Wallet connect failed: " + err.message);
+    }
+  }
+
+  async function loadMessages(contract) {
+    try {
+      const count = await contract.getMessagesCount();
+      const items = [];
+
+      for (let i = 0; i < count; i++) {
+        const msg = await contract.messages(i);
+        items.push({
+          user: msg[0],
+          text: msg[1],
+          time: new Date(Number(msg[2]) * 1000).toLocaleString()
+        });
+      }
+
+      setMessagesList(items);
+    } catch (err) {
+      console.error("Read failed:", err);
+    }
   }
 
   async function handlePublish() {
@@ -36,41 +59,18 @@ export default function MessageBoard() {
         alert("Connect wallet first!");
         return;
       }
-      const fee = ethers.parseEther("0.000005"); // маленькая комса, как ты просила
 
-      const tx = await contractInstance.postMessage(text, {
-        value: fee // передаём комиссию, чтобы контракт не делал revert
-      });
-
+      const tx = await contractInstance.postMessage(text);
       await tx.wait();
-      loadMessages(contractInstance);
-      setText("");
+
+      await loadMessages(contractInstance);
     } catch (err) {
-      console.error(err);
       alert("Transaction failed: " + err.message);
     }
   }
 
-  async function loadMessages(contract) {
-    try {
-      const count = await contract.getMessagesCount();
-      const items = [];
-      for (let i = 0; i < count; i++) {
-        const msg = await contract.messages(i);
-        items.push({
-          user: msg.user,
-          text: msg.text,
-          time: new Date(Number(msg.timestamp) * 1000).toLocaleString()
-        });
-      }
-      setMessagesList(items);
-    } catch (err) {
-      console.error("Read failed:", err);
-    }
-  }
-
   useEffect(() => {
-    if (window.ethereum && contractInstance) {
+    if (contractInstance) {
       loadMessages(contractInstance);
     }
   }, [contractInstance]);
@@ -78,6 +78,12 @@ export default function MessageBoard() {
   return (
     <div style={{ padding: 20, fontFamily: "Arial" }}>
       <button onClick={connectWallet}>Connect Wallet</button>
+
+      {userWallet && (
+        <p style={{ marginTop: 10 }}>
+          Connected: <strong>{userWallet}</strong>
+        </p>
+      )}
 
       <div style={{ marginTop: 20 }}>
         <textarea
@@ -92,13 +98,13 @@ export default function MessageBoard() {
         Publish
       </button>
 
-      <h2>On-chain messages:</h2>
+      <h3>On-chain messages:</h3>
       {messagesList.length === 0 && <p>No messages found</p>}
 
       {messagesList.map((m, i) => (
         <div key={i} style={{ border: "1px solid #ccc", padding: 10, marginTop: 10 }}>
           <p>{m.text}</p>
-          <small>from {m.user.slice(0, 6)}… — {m.time}</small>
+          <small>from {m.user.slice(0, 6)}... — {m.time}</small>
         </div>
       ))}
     </div>
