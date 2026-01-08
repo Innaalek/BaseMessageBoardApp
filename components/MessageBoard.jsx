@@ -6,38 +6,48 @@ const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 const abi = [
   "function postMessage(string calldata _text) external payable",
   "function getMessagesCount() external view returns (uint256)",
-  "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
   "function messages(uint256 index) external view returns (tuple(address user, string text, uint256 timestamp))",
   "event MessagePosted(address indexed user, string message, uint256 timestamp)"
 ];
 
 export default function MessageBoard() {
-  const [messagesList, setMessagesList] = useState([]);
   const [text, setText] = useState("");
-  const [latest, setLatest] = useState("");
+  const [messagesList, setMessagesList] = useState([]);
   const [userWallet, setUserWallet] = useState(null);
   const [contractInstance, setContractInstance] = useState(null);
 
   async function connectWallet() {
+    if (!window.ethereum) {
+      alert("Install MetaMask or Rabby!");
+      return;
+    }
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const address = await signer.getAddress();
+    setUserWallet(address);
+
+    const contract = new ethers.Contract(contractAddress, abi, signer);
+    setContractInstance(contract);
+  }
+
+  async function handlePublish() {
     try {
-      if (!window.ethereum) {
-        alert("Wallet not found");
+      if (!contractInstance) {
+        alert("Connect wallet first!");
         return;
       }
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const address = await signer.getAddress();
-      setUserWallet(address);
+      const fee = ethers.parseEther("0.000005"); // маленькая комса, как ты просила
 
-      const contract = new ethers.Contract(contractAddress, abi, signer);
-      setContractInstance(contract);
+      const tx = await contractInstance.postMessage(text, {
+        value: fee // передаём комиссию, чтобы контракт не делал revert
+      });
 
-      alert("Wallet connected: " + address);
-      loadMessages(contract);
+      await tx.wait();
+      loadMessages(contractInstance);
+      setText("");
     } catch (err) {
       console.error(err);
-      alert("Wallet connect failed: " + err.message);
+      alert("Transaction failed: " + err.message);
     }
   }
 
@@ -54,27 +64,8 @@ export default function MessageBoard() {
         });
       }
       setMessagesList(items);
-
-      const last = await contract.getLatestMessage();
-      setLatest(last.text);
     } catch (err) {
-      console.error("Read error:", err);
-    }
-  }
-
-  async function handlePublish() {
-    try {
-      if (!contractInstance) {
-        alert("Connect wallet first!");
-        return;
-      }
-      const tx = await contractInstance.postMessage(text, { value: 0 });
-      await tx.wait();
-      setText("");
-      loadMessages(contractInstance);
-    } catch (err) {
-      console.error(err);
-      alert("Transaction failed: " + err.message);
+      console.error("Read failed:", err);
     }
   }
 
@@ -97,25 +88,19 @@ export default function MessageBoard() {
         />
       </div>
 
-      <button onClick={handlePublish} style={{ marginTop: 10 }}>Publish</button>
+      <button onClick={handlePublish} style={{ marginTop: 10 }}>
+        Publish
+      </button>
 
       <h2>On-chain messages:</h2>
-
       {messagesList.length === 0 && <p>No messages found</p>}
 
       {messagesList.map((m, i) => (
         <div key={i} style={{ border: "1px solid #ccc", padding: 10, marginTop: 10 }}>
           <p>{m.text}</p>
-          <small>from {m.user.slice(0, 6)}... — {m.time}</small>
+          <small>from {m.user.slice(0, 6)}… — {m.time}</small>
         </div>
       ))}
-
-      {latest && (
-        <div style={{ marginTop: 20 }}>
-          <h3>Latest message:</h3>
-          <p>{latest}</p>
-        </div>
-      )}
     </div>
   );
 }
