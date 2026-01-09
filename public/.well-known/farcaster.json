@@ -7,12 +7,12 @@
   "frame": {
     "version": "1",
     "name": "Base Message Board",
-    "iconUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/icon.png",
-    "homeUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app",
-    "imageUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/image.png",
+    "iconUrl": "https://base-message-board-app.vercel.app/icon.png",
+    "homeUrl": "https://base-message-board-app.vercel.app",
+    "imageUrl": "https://base-message-board-app.vercel.app/icon.png",
     "buttonTitle": "Post on Base",
-    "splashImageUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/image.png",
+    "splashImageUrl": "https://base-message-board-app.vercel.app/icon.png",
     "splashBackgroundColor": "#0052FF",
-    "webhookUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/api/webhook"
+    "webhookUrl": "https://base-message-board-app.vercel.app/api/webhook"
   }
 }
