@@ -1,0 +1,18 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOiAzNjg3NzksICJ0eXBlIjogImN1c3RvZHkiLCAia2V5IjogIjB4... (placeholder for signing)",
+    "payload": "eyJkb21haW4iOiAieW91ci1kb21haW4ifQ==",
+    "signature": "MHhm..."
+  },
+  "frame": {
+    "version": "1",
+    "name": "Base Message Board",
+    "iconUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/icon.png",
+    "homeUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app",
+    "imageUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/image.png",
+    "buttonTitle": "Post on Base",
+    "splashImageUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/image.png",
+    "splashBackgroundColor": "#0052FF",
+    "webhookUrl": "https://base-message-board-q8kqzo7jq-gladness-projects.vercel.app/api/webhook"
+  }
+}
