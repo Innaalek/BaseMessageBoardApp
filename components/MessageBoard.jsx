@@ -53,21 +53,27 @@ export default function MessageBoard() {
     }
   }
 
-  async function handlePublish() {
-    try {
-      if (!contractInstance) {
-        alert("Connect wallet first!");
-        return;
-      }
-
-      const tx = await contractInstance.postMessage(text);
-      await tx.wait();
-
-      await loadMessages(contractInstance);
-    } catch (err) {
-      alert("Transaction failed: " + err.message);
+ async function handlePublish() {
+  try {
+    if (!contractInstance) {
+      alert("Connect wallet first!");
+      return;
     }
+
+    const POST_FEE = await contractInstance.POST_FEE(); // читаем fee из контракта
+
+    const tx = await contractInstance.postMessage(text, {
+      value: POST_FEE // ← передаём fee в ETH
+    });
+
+    await tx.wait();
+    setText("");
+    await loadMessages(contractInstance);
+
+  } catch (err) {
+    alert("Transaction failed: " + err.message);
   }
+}
 
   useEffect(() => {
     if (contractInstance) {
