@@ -7,7 +7,7 @@ const abi = [
   "function postMessage(string calldata _text) external",
   "function getMessagesCount() external view returns (uint256)",
   "function getLatestMessage() external view returns (tuple(address user, string text, uint256 timestamp))",
-  "function messages(uint256 index) external view returns (address user, string text, uint256 timestamp)",
+  "function messages(uint256 index) external view returns (tuple(address user, string text, uint256 timestamp))",
   "event MessagePosted(address indexed user, string message, uint256 timestamp)"
 ];
 
@@ -19,7 +19,7 @@ export default function MessageBoard() {
 
   async function connectWallet() {
     if (!window.ethereum) {
-      alert("Install wallet!");
+      alert("Install MetaMask or Rabby!");
       return;
     }
     const provider = new ethers.BrowserProvider(window.ethereum);
@@ -36,11 +36,11 @@ export default function MessageBoard() {
     const items = [];
 
     for (let i = 0; i < count; i++) {
-      const [user, msgText, timestamp] = await contract.messages(i);
+      const msg = await contract.messages(i);
       items.push({
-        from: user,
-        text: msgText,
-        time: new Date(Number(timestamp) * 1000).toLocaleString()
+        from: msg.user,
+        text: msg.text,
+        time: new Date(Number(msg.timestamp) * 1000).toLocaleString()
       });
     }
 
@@ -67,12 +67,6 @@ export default function MessageBoard() {
       alert("Transaction failed: " + err.message);
     }
   }
-
-  useEffect(() => {
-    if (contractInstance) {
-      connectWallet();
-    }
-  }, []);
 
   return (
     <div style={{ padding: 20, fontFamily: "Arial" }}>
@@ -102,8 +96,8 @@ export default function MessageBoard() {
       {latest && (
         <div style={{ marginTop: 20 }}>
           <h3>Latest message:</h3>
-        <p>{latest}</p>
-      </div>
+          <p>{latest}</p>
+        </div>
       )}
     </div>
   );
