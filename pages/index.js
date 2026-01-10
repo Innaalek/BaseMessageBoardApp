@@ -1,9 +1,21 @@
 import Head from 'next/head';
+import { useEffect } from 'react';
+import sdk from '@farcaster/frame-sdk';
 import MessageBoard from "../components/MessageBoard";
 
 export default function Home() {
   
-  // Настройки для Farcaster (чтобы работала кнопка Launch)
+  // 1. Сообщаем Farcaster, что приложение загрузилось
+  useEffect(() => {
+    const load = async () => {
+      await sdk.actions.ready();
+    };
+    if (sdk && sdk.actions) {
+      load();
+    }
+  }, []);
+
+  // 2. Настройки для кнопки Launch
   const appUrl = 'https://base-message-board-app.vercel.app';
   
   const frameMetadata = JSON.stringify({
@@ -26,17 +38,11 @@ export default function Home() {
       <Head>
         <title>Base Message Board</title>
         <meta name="description" content="Decentralized message board on Base Network" />
-        
-        {/* Главная настройка для Mini App */}
         <meta name="fc:frame" content={frameMetadata} />
-        
-        {/* Open Graph (для красивых ссылок в Telegram/Twitter) */}
         <meta property="og:title" content="Base Message Board" />
-        <meta property="og:description" content="Leave your mark on the Base blockchain forever." />
         <meta property="og:image" content={`${appUrl}/icon.png`} />
       </Head>
 
-      {/* Сам компонент приложения с сообщениями */}
       <MessageBoard />
     </>
   );
