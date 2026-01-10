@@ -3,8 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
-// Используем BigInt для надежного сравнения (ethers v6 возвращает BigInt)
-const BASE_CHAIN_ID = 8453n; 
+const BASE_CHAIN_ID = 8453n;
 const BASE_CHAIN_ID_HEX = "0x2105";
 
 const abi = [
@@ -35,107 +34,95 @@ export default function MessageBoard() {
       } catch (e) { console.error(e); }
     };
     init();
-    loadMessages(null);
+    loadMessages();
   }, []);
 
-  // --- 1. Поиск провайдера ---
-  const getEthProvider = () => {
-    // Farcaster (Мобильный)
+  // --- 1. Чистый поиск провайдера (без ethers) ---
+  const getRawProvider = () => {
+    // Farcaster
     if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
       return sdk.wallet.ethProvider;
     }
-    // Браузер (MetaMask и др.)
+    // Браузер (MetaMask)
     if (typeof window !== "undefined" && window.ethereum) {
-      // Пытаемся обойти конфликты кошельков (EIP-6963)
-      // Если есть selectedProvider (у некоторых версий ММ), берем его
-      if (window.ethereum.selectedProvider) return window.ethereum.selectedProvider;
-      // Иначе берем стандартный
-      return window.ethereum;
+      // Если есть selectedProvider (для обхода конфликтов)
+      return window.ethereum.selectedProvider || window.ethereum;
     }
     return null;
   };
 
-  // --- 2. Мягкая проверка сети ---
-  const ensureNetwork = async (provider) => {
+  // --- 2. Проверка сети (Manual Request) ---
+  const ensureNetwork = async (rawProvider) => {
     try {
-      const net = await provider.getNetwork();
-      addLog("Current Chain ID: " + net.chainId);
+      // Запрашиваем chainId напрямую
+      const chainIdHex = await rawProvider.request({ method: 'eth_chainId' });
+      const chainId = BigInt(chainIdHex);
 
-      // Если мы УЖЕ на Base (8453), то просто выходим. Ничего не трогаем!
-      // Это предотвращает ошибку -32603
-      if (net.chainId === BASE_CHAIN_ID) {
-        addLog("Network is already Base. Good.");
-        return;
-      }
+      if (chainId === BASE_CHAIN_ID) return;
 
-      addLog("Switching to Base...");
-      await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
-      
-    } catch (switchError) {
-      // Ошибка 4902 = Сеть не найдена, нужно добавить
-      if (switchError.code === 4902 || switchError.error?.code === 4902) {
-        try {
-          await provider.send("wallet_addEthereumChain", [{
+      addLog("Switching network...");
+      await rawProvider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: BASE_CHAIN_ID_HEX }],
+      });
+    } catch (error) {
+      // Если сети нет, добавляем
+      if (error.code === 4902 || error.data?.code === 4902) {
+        await rawProvider.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
             chainId: BASE_CHAIN_ID_HEX,
-            chainName: "Base Mainnet",
-            rpcUrls: ["https://mainnet.base.org"],
-            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-            blockExplorerUrls: ["https://basescan.org"]
-          }]);
-        } catch (addError) {
-          console.error(addError);
-          alert("Could not add Base network.");
-        }
-      } else {
-        // Другие ошибки игнорируем (вдруг пользователь отменил, но был на правильной сети)
-        console.error("Switch error:", switchError);
+            chainName: 'Base Mainnet',
+            rpcUrls: ['https://mainnet.base.org'],
+            nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+            blockExplorerUrls: ['https://basescan.org'],
+          }],
+        });
       }
     }
   };
 
-  // --- 3. Подключение ---
+  // --- 3. ПОДКЛЮЧЕНИЕ (Самое важное изменение) ---
   async function connectWallet() {
     try {
-      const ethProvider = getEthProvider();
-      if (!ethProvider) {
+      const rawProvider = getRawProvider();
+      if (!rawProvider) {
         alert("Wallet not found.");
         return;
       }
 
-      const provider = new ethers.BrowserProvider(ethProvider);
-      
-      // Сначала запрашиваем аккаунты (БЕЗ смены сети)
-      addLog("Requesting accounts...");
-      const accounts = await provider.send("eth_requestAccounts", []);
-      
-      if (!accounts[0]) return;
-      
-      // Только когда получили доступ, проверяем сеть
-      await ensureNetwork(provider);
+      addLog("Requesting accounts (Raw Mode)...");
 
-      setUserAddress(accounts[0]);
-      
-      // Баланс
-      try {
-        const bal = await provider.getBalance(accounts[0]);
-        setBalance(ethers.formatEther(bal));
-      } catch (e) { console.error("Balance error", e); }
+      // 👇 ЗДЕСЬ МЫ НЕ ИСПОЛЬЗУЕМ ETHERS! 
+      // Мы делаем запрос напрямую, это обходит ошибку -32603
+      const accounts = await rawProvider.request({ method: 'eth_requestAccounts' });
 
-      addLog("Connected: " + accounts[0].slice(0,6));
-      loadMessages(provider);
+      if (!accounts || accounts.length === 0) return;
+      const address = accounts[0];
+
+      // Проверяем сеть (тоже в ручном режиме)
+      await ensureNetwork(rawProvider);
+
+      setUserAddress(address);
+      addLog("Connected: " + address.slice(0, 6));
+
+      // А вот теперь можно подключить Ethers для чтения баланса
+      const ethersProvider = new ethers.BrowserProvider(rawProvider);
+      const bal = await ethersProvider.getBalance(address);
+      setBalance(ethers.formatEther(bal));
+
+      loadMessages();
 
     } catch (error) {
       addLog("Connect Error: " + error.message);
-      // Если ошибка про "User rejected", не пугаем пользователя алертом
-      if (!error.message.includes("rejected")) {
-        alert("Connect Error: " + error.message);
-      }
+      // alert("Connect Error: " + error.message); 
     }
   }
 
-  // --- 4. Загрузка (через публичный RPC) ---
-  async function loadMessages(currentProvider) {
+  // --- 4. Загрузка ---
+  async function loadMessages() {
     try {
+      // Всегда публичный RPC
       const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
       const contract = new ethers.Contract(contractAddress, abi, provider);
       const rawMessages = await contract.getMessages();
@@ -160,16 +147,15 @@ export default function MessageBoard() {
       setIsSending(true);
       addLog("Preparing tx...");
 
-      const ethProvider = getEthProvider();
-      const provider = new ethers.BrowserProvider(ethProvider);
-      
-      // Проверка сети перед отправкой (на всякий случай)
-      await ensureNetwork(provider);
+      const rawProvider = getRawProvider();
+      // Перед отправкой убеждаемся в сети
+      await ensureNetwork(rawProvider);
 
+      // Тут уже нужен Ethers Signer
+      const provider = new ethers.BrowserProvider(rawProvider);
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
-      // Отправка (c Gas Limit)
       const tx = await contract.postMessage(text, { 
         value: ethers.parseEther("0.000001"),
         gasLimit: 300000 
@@ -177,33 +163,29 @@ export default function MessageBoard() {
       
       addLog("Tx Sent: " + tx.hash.slice(0,8));
       setText("");
-      
-      // UI Update
       setMessagesList([{from: userAddress, text: text, time: "Pending..."}, ...messagesList]);
 
-      // Ожидание
       try {
         await tx.wait();
         addLog("Tx Confirmed!");
-      } catch (waitError) {
-        addLog("Wait skipped, waiting manually...");
+      } catch (e) {
+        addLog("Wait skipped.");
       }
 
       await new Promise(r => setTimeout(r, 4000));
       setIsSending(false);
-      await loadMessages(null);
-      addLog("List updated.");
+      await loadMessages();
 
     } catch (err) {
       setIsSending(false);
       addLog("Error: " + (err.shortMessage || err.message));
-      alert("Error: " + (err.shortMessage || err.message));
+      alert("Error: " + err.message);
     }
   }
 
   return (
     <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto", fontFamily: "sans-serif", paddingBottom: "100px" }}>
-      <h2 style={{textAlign: "center"}}>Base Board</h2>
+      <h2 style={{textAlign: "center"}}>Base Board (Raw Mode)</h2>
       
       <div style={{textAlign: "center", marginBottom: 20}}>
         {!userAddress ? (
