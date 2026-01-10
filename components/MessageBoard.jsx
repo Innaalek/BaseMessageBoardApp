@@ -1,4 +1,4 @@
-import { sdk } from "@farcaster/frame-sdk";
+import sdk from "@farcaster/frame-sdk";
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 
@@ -32,10 +32,19 @@ export default function MessageBoard() {
   }, []);
 
   const getEthProvider = () => {
-    if (typeof window !== "undefined" && window.ethereum) return window.ethereum;
-    if (sdk?.wallet?.ethProvider) return sdk.wallet.ethProvider;
-    return null;
-  };
+    // СНАЧАЛА проверяем кошелек Фаркастера (это главное исправление)
+    if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
+      console.log("Using Farcaster Wallet");
+      return sdk.wallet.ethProvider;
+    }
+
+    // И только если его нет — ищем обычный MetaMask
+    if (typeof window !== "undefined" && window.ethereum) {
+      return window.ethereum;
+    }
+
+    return null;
+  };
 
   // --- НОВАЯ ФУНКЦИЯ: ПРОВЕРКА СЕТИ ---
   async function checkAndSwitchNetwork(provider) {
