@@ -1,3 +1,4 @@
+import { sdk } from "@farcaster/frame-sdk"; // <--- 1. Добавили импорт SDK
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 
@@ -16,6 +17,11 @@ export default function MessageBoard() {
   const [provider, setProvider] = useState(null);
   const [text, setText] = useState("");
   const [messagesList, setMessagesList] = useState([]);
+
+  // <--- 2. Добавляем эффект, который сообщает Farcaster, что фрейм загрузился
+  useEffect(() => {
+    sdk.actions.ready();
+  }, []);
 
   async function connectWallet() {
     if (!window.ethereum) {
