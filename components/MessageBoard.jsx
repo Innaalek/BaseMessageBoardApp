@@ -3,8 +3,9 @@ import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
 
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
-const BASE_CHAIN_ID_HEX = "0x2105"; // 8453
-const BASE_CHAIN_ID_DECIMAL = 8453;
+// Используем BigInt для надежного сравнения (ethers v6 возвращает BigInt)
+const BASE_CHAIN_ID = 8453n; 
+const BASE_CHAIN_ID_HEX = "0x2105";
 
 const abi = [
   "function postMessage(string calldata _text) external payable",
@@ -19,7 +20,6 @@ export default function MessageBoard() {
   const [text, setText] = useState("");
   const [logs, setLogs] = useState([]);
 
-  // Логирование для отладки
   const addLog = useCallback((msg) => {
     const time = new Date().toLocaleTimeString();
     setLogs(prev => [`[${time}] ${msg}`, ...prev]);
@@ -38,29 +38,41 @@ export default function MessageBoard() {
     loadMessages(null);
   }, []);
 
-  // --- 1. Умный выбор провайдера ---
+  // --- 1. Поиск провайдера ---
   const getEthProvider = () => {
-    // Если мы внутри Farcaster - берем его
+    // Farcaster (Мобильный)
     if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
       return sdk.wallet.ethProvider;
     }
-    // Если мы в обычном браузере - берем MetaMask
+    // Браузер (MetaMask и др.)
     if (typeof window !== "undefined" && window.ethereum) {
+      // Пытаемся обойти конфликты кошельков (EIP-6963)
+      // Если есть selectedProvider (у некоторых версий ММ), берем его
+      if (window.ethereum.selectedProvider) return window.ethereum.selectedProvider;
+      // Иначе берем стандартный
       return window.ethereum;
     }
     return null;
   };
 
-  // --- 2. Функция смены сети (ОБЯЗАТЕЛЬНА для Chrome/Brave) ---
-  const switchNetwork = async (provider) => {
+  // --- 2. Мягкая проверка сети ---
+  const ensureNetwork = async (provider) => {
     try {
       const net = await provider.getNetwork();
-      if (Number(net.chainId) !== BASE_CHAIN_ID_DECIMAL) {
-        addLog("Switching network to Base...");
-        await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
+      addLog("Current Chain ID: " + net.chainId);
+
+      // Если мы УЖЕ на Base (8453), то просто выходим. Ничего не трогаем!
+      // Это предотвращает ошибку -32603
+      if (net.chainId === BASE_CHAIN_ID) {
+        addLog("Network is already Base. Good.");
+        return;
       }
+
+      addLog("Switching to Base...");
+      await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
+      
     } catch (switchError) {
-      // Если сети нет, пытаемся добавить
+      // Ошибка 4902 = Сеть не найдена, нужно добавить
       if (switchError.code === 4902 || switchError.error?.code === 4902) {
         try {
           await provider.send("wallet_addEthereumChain", [{
@@ -71,50 +83,59 @@ export default function MessageBoard() {
             blockExplorerUrls: ["https://basescan.org"]
           }]);
         } catch (addError) {
-          throw addError;
+          console.error(addError);
+          alert("Could not add Base network.");
         }
       } else {
-        console.error("Network switch error (ignorable inside Warpcast):", switchError);
+        // Другие ошибки игнорируем (вдруг пользователь отменил, но был на правильной сети)
+        console.error("Switch error:", switchError);
       }
     }
   };
 
-  // --- 3. Подключение кошелька ---
+  // --- 3. Подключение ---
   async function connectWallet() {
     try {
       const ethProvider = getEthProvider();
       if (!ethProvider) {
-        alert("Wallet not found. Please install MetaMask or use Warpcast.");
+        alert("Wallet not found.");
         return;
       }
 
       const provider = new ethers.BrowserProvider(ethProvider);
       
-      // Запрашиваем аккаунты
+      // Сначала запрашиваем аккаунты (БЕЗ смены сети)
+      addLog("Requesting accounts...");
       const accounts = await provider.send("eth_requestAccounts", []);
+      
       if (!accounts[0]) return;
-
-      // ПРОВЕРЯЕМ СЕТЬ (Важно для Chrome!)
-      await switchNetwork(provider);
+      
+      // Только когда получили доступ, проверяем сеть
+      await ensureNetwork(provider);
 
       setUserAddress(accounts[0]);
       
-      const bal = await provider.getBalance(accounts[0]);
-      setBalance(ethers.formatEther(bal));
+      // Баланс
+      try {
+        const bal = await provider.getBalance(accounts[0]);
+        setBalance(ethers.formatEther(bal));
+      } catch (e) { console.error("Balance error", e); }
+
       addLog("Connected: " + accounts[0].slice(0,6));
-      
       loadMessages(provider);
 
     } catch (error) {
       addLog("Connect Error: " + error.message);
-      alert("Connect Error: " + error.message);
+      // Если ошибка про "User rejected", не пугаем пользователя алертом
+      if (!error.message.includes("rejected")) {
+        alert("Connect Error: " + error.message);
+      }
     }
   }
 
-  // --- 4. Загрузка сообщений ---
+  // --- 4. Загрузка (через публичный RPC) ---
   async function loadMessages(currentProvider) {
     try {
-      // Всегда читаем через публичный RPC (стабильнее)
       const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
       const contract = new ethers.Contract(contractAddress, abi, provider);
       const rawMessages = await contract.getMessages();
@@ -128,7 +149,7 @@ export default function MessageBoard() {
     } catch (error) { console.error(error); }
   }
 
-  // --- 5. Отправка сообщения ---
+  // --- 5. Публикация ---
   async function handlePublish() {
     if (!userAddress) {
       await connectWallet();
@@ -141,39 +162,34 @@ export default function MessageBoard() {
 
       const ethProvider = getEthProvider();
       const provider = new ethers.BrowserProvider(ethProvider);
+      
+      // Проверка сети перед отправкой (на всякий случай)
+      await ensureNetwork(provider);
+
       const signer = await provider.getSigner();
-
-      // На всякий случай проверяем сеть еще раз
-      await switchNetwork(provider);
-
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
-      // Отправляем
+      // Отправка (c Gas Limit)
       const tx = await contract.postMessage(text, { 
         value: ethers.parseEther("0.000001"),
-        gasLimit: 300000 // Лимит газа (для надежности)
+        gasLimit: 300000 
       });
       
       addLog("Tx Sent: " + tx.hash.slice(0,8));
       setText("");
       
-      // Показываем "Pending" сразу
+      // UI Update
       setMessagesList([{from: userAddress, text: text, time: "Pending..."}, ...messagesList]);
 
-      // --- УНИВЕРСАЛЬНОЕ ОЖИДАНИЕ ---
-      // Мы пытаемся ждать честно. Если не выходит - ждем таймером.
+      // Ожидание
       try {
-        addLog("Waiting confirmation...");
-        await tx.wait(); // Ждем подтверждения блока
+        await tx.wait();
         addLog("Tx Confirmed!");
       } catch (waitError) {
-        addLog("Wait skipped (normal for some wallets).");
+        addLog("Wait skipped, waiting manually...");
       }
 
-      // Ждем еще 2 секунды для надежности (чтобы ноды синхронизировались)
-      await new Promise(r => setTimeout(r, 2000));
-
-      // ОБНОВЛЯЕМ СПИСОК
+      await new Promise(r => setTimeout(r, 4000));
       setIsSending(false);
       await loadMessages(null);
       addLog("List updated.");
@@ -181,7 +197,7 @@ export default function MessageBoard() {
     } catch (err) {
       setIsSending(false);
       addLog("Error: " + (err.shortMessage || err.message));
-      alert("Error: " + err.message);
+      alert("Error: " + (err.shortMessage || err.message));
     }
   }
 
@@ -231,7 +247,6 @@ export default function MessageBoard() {
         ))}
       </div>
       
-      {/* Логи можно оставить пока, чтобы видеть что происходит в Chrome */}
       <div style={{marginTop: 20, fontSize: 10, color: "#999", fontFamily: "monospace"}}>
         {logs[0]}
       </div>
