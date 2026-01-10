@@ -13,19 +13,18 @@ const abi = [
 
 export default function MessageBoard() {
   const [contractInstance, setContractInstance] = useState(null);
-  const [provider, setProvider] = useState(null);
-  const [userAddress, setUserAddress] = useState(""); // Добавил для наглядности
+  const [userAddress, setUserAddress] = useState("");
   const [text, setText] = useState("");
   const [messagesList, setMessagesList] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isSending, setIsSending] = useState(false);
 
-  // 1. Инициализация SDK
+  // 1. Инициализация SDK Farcaster
   useEffect(() => {
     const init = async () => {
       try {
         if (sdk && sdk.actions) {
           await sdk.actions.ready();
-          console.log("Farcaster SDK Ready");
         }
       } catch (e) {
         console.error("SDK Init error:", e);
@@ -34,83 +33,70 @@ export default function MessageBoard() {
     init();
   }, []);
 
-  // 2. Вспомогательная функция для поиска провайдера
+  // 2. Функция получения правильного провайдера
   const getEthProvider = () => {
-    // Сначала ищем стандартный window.ethereum (MetaMask, Trust, Coinbase Wallet, Warpcast WebView)
+    // В Warpcast mobile (iOS/Android) кошелек инжектится именно в window.ethereum
     if (typeof window !== "undefined" && window.ethereum) {
-      console.log("Found window.ethereum");
       return window.ethereum;
     }
-    
-    // Если нет, пробуем достать из SDK (безопасная проверка через ?.)
+    // Запасной вариант для специфичных клиентов Farcaster
     if (sdk?.wallet?.ethProvider) {
-      console.log("Found sdk.wallet.ethProvider");
       return sdk.wallet.ethProvider;
     }
-
     return null;
   };
 
   async function connectWallet() {
-    console.log("Connecting wallet...");
     const ethProvider = getEthProvider();
 
     if (!ethProvider) {
-      alert("Кошелек не найден! Пожалуйста, установите MetaMask или откройте приложение через Warpcast.");
+      alert("Wallet not found. Please open in a wallet browser or Warpcast.");
       return;
     }
 
     try {
-      // Создаем BrowserProvider
       const _provider = new ethers.BrowserProvider(ethProvider);
       
-      // Запрашиваем доступ к аккаунту
-      const accounts = await _provider.send("eth_requestAccounts", []);
+      // Запрашиваем аккаунты
+      await _provider.send("eth_requestAccounts", []);
       const signer = await _provider.getSigner();
-      
       const address = await signer.getAddress();
-      console.log("Connected address:", address);
+      
       setUserAddress(address);
 
+      // Создаем контракт с подписчиком (Signer) для записи
       const contract = new ethers.Contract(contractAddress, abi, signer);
-
-      setProvider(_provider);
       setContractInstance(contract);
 
-      // Загружаем сообщения сразу после подключения
-      await loadMessages(contract, _provider);
+      // Сразу грузим сообщения
+      loadMessages(_provider);
       
     } catch (error) {
-      console.error("Connection error detailed:", error);
-      alert("Ошибка подключения: " + (error.reason || error.message || error));
+      console.error("Connection error:", error);
+      alert("Connection failed: " + (error.message || error));
     }
   }
 
-  // Функция загрузки сообщений (Read Only)
-  async function loadMessages(contract, currentProvider) {
+  // Загрузка сообщений (Read-only)
+  async function loadMessages(currentProvider) {
     try {
-      // Если контракт уже подключен (с signer) - используем его
-      // Если нет - создаем read-only инстанс через window.ethereum (если есть) или ждем подключения
-      let readContract = contract;
-
-      if (!readContract) {
-        const ethProvider = getEthProvider();
-        if (ethProvider) {
-             const _readProvider = new ethers.BrowserProvider(ethProvider);
-             readContract = new ethers.Contract(contractAddress, abi, _readProvider);
-        } else {
-            // Если совсем нет провайдера, выходим, пока юзер не нажмет connect
-            return;
-        }
+      // Если провайдер не передан, пробуем найти доступный
+      let providerToUse = currentProvider;
+      if (!providerToUse) {
+          const ethP = getEthProvider();
+          if (ethP) providerToUse = new ethers.BrowserProvider(ethP);
       }
 
+      if (!providerToUse) return;
+
+      const readContract = new ethers.Contract(contractAddress, abi, providerToUse);
       const rawMessages = await readContract.getMessages();
       
       const items = rawMessages.map(msg => ({
         from: msg.user,
         text: msg.text,
         time: new Date(Number(msg.timestamp) * 1000).toLocaleString()
-      })).reverse(); // Показываем новые сверху
+      })).reverse();
 
       setMessagesList(items);
       setIsLoaded(true);
@@ -122,36 +108,46 @@ export default function MessageBoard() {
 
   async function handlePublish() {
     if (!contractInstance) {
-      alert("Сначала подключи кошелек (Connect Wallet)!");
-      connectWallet(); // Пробуем подключить автоматически
+      alert("Please connect wallet first!");
       return;
     }
 
     if (!text.trim()) return;
 
     try {
+      setIsSending(true);
       const fee = ethers.parseEther("0.000001"); 
+      
+      // Отправка транзакции
       const tx = await contractInstance.postMessage(text, { value: fee });
       
-      alert("Транзакция отправлена! Ждем подтверждения...");
+      // Ждем подтверждения блока
       await tx.wait();
 
       setText("");
-      await loadMessages(contractInstance, provider);
-      alert("Сообщение опубликовано!");
+      alert("Message posted successfully!");
+
+      // ВАЖНО: Делаем паузу 2 секунды, чтобы RPC успел обновиться, потом перезагружаем список
+      setTimeout(async () => {
+         const ethProvider = getEthProvider();
+         const provider = new ethers.BrowserProvider(ethProvider);
+         await loadMessages(provider);
+         setIsSending(false);
+      }, 2000);
 
     } catch (err) {
+      setIsSending(false);
       console.error(err);
-      alert("Ошибка транзакции: " + (err.reason || err.message));
+      // Выводим точную ошибку, чтобы понять в чем дело
+      alert("Transaction failed: " + (err.shortMessage || err.message || "Unknown error"));
     }
   }
 
-  // Авто-загрузка сообщений при старте (если провайдер доступен сразу)
+  // Автозагрузка при старте (Read only)
   useEffect(() => {
-    // Небольшая задержка, чтобы убедиться, что window.ethereum прогрузился
     const timer = setTimeout(() => {
-         loadMessages(null, null);
-    }, 500);
+         loadMessages(null);
+    }, 1000);
     return () => clearTimeout(timer);
   }, []);
 
@@ -160,7 +156,7 @@ export default function MessageBoard() {
       <h1 style={{textAlign: "center"}}>Base Message Board</h1>
       
       <div style={{textAlign: "center", marginBottom: 20}}>
-        {!contractInstance ? (
+        {!userAddress ? (
           <button 
             onClick={connectWallet} 
             style={{
@@ -170,13 +166,14 @@ export default function MessageBoard() {
                 border: "none", 
                 borderRadius: "8px",
                 fontSize: "16px",
-                cursor: "pointer"
+                cursor: "pointer",
+                fontWeight: "bold"
             }}>
              Connect Wallet
           </button>
         ) : (
-          <div style={{padding: "10px", background: "#f0f0f0", borderRadius: "8px", display: "inline-block"}}>
-            <span style={{color: "green"}}>● Connected: </span> 
+          <div style={{padding: "10px", background: "#e6f2ff", borderRadius: "8px", display: "inline-block", color: "#0052FF"}}>
+            <span style={{fontWeight: "bold"}}>Connected: </span> 
             {userAddress.slice(0, 6)}...{userAddress.slice(-4)}
           </div>
         )}
@@ -186,30 +183,33 @@ export default function MessageBoard() {
         <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Напиши что-нибудь в блокчейн Base..."
+            placeholder="Write a message on Base..."
             rows={4}
+            disabled={isSending}
             style={{
                 padding: 12, 
                 borderRadius: "8px", 
                 border: "1px solid #ccc", 
                 fontSize: "16px",
                 width: "100%",
-                boxSizing: "border-box"
+                boxSizing: "border-box",
+                fontFamily: "inherit"
             }}
         />
         <button 
             onClick={handlePublish} 
-            disabled={!text.trim()}
+            disabled={!text.trim() || isSending}
             style={{
                 padding: "12px", 
-                backgroundColor: text.trim() ? "#333" : "#ccc", 
+                backgroundColor: (text.trim() && !isSending) ? "#333" : "#ccc", 
                 color: "white", 
                 border: "none", 
                 borderRadius: "8px",
-                cursor: text.trim() ? "pointer" : "not-allowed",
-                fontSize: "16px"
+                cursor: (text.trim() && !isSending) ? "pointer" : "not-allowed",
+                fontSize: "16px",
+                fontWeight: "bold"
             }}>
-            Publish (Cost: 0.000001 ETH)
+            {isSending ? "Publishing..." : "Publish (Cost: 0.000001 ETH)"}
         </button>
       </div>
 
@@ -227,9 +227,9 @@ export default function MessageBoard() {
             backgroundColor: "#fafafa",
             boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
         }}>
-          <p style={{fontWeight: "500", fontSize: "1.1em", margin: "0 0 8px 0"}}>{m.text}</p>
+          <p style={{fontWeight: "500", fontSize: "1.1em", margin: "0 0 8px 0", wordWrap: "break-word"}}>{m.text}</p>
           <div style={{display: "flex", justifyContent: "space-between", fontSize: "0.85em", color: "#666"}}>
-            <span>Author: <span style={{color: "#0052FF"}}>{m.from.slice(0, 6)}...{m.from.slice(-4)}</span></span>
+            <span>From: <span style={{color: "#0052FF"}}>{m.from.slice(0, 6)}...{m.from.slice(-4)}</span></span>
             <span>{m.time}</span>
           </div>
         </div>
