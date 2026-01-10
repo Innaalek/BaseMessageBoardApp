@@ -1,14 +1,14 @@
-import Head from 'next/head'; // 1. Обязательно добавьте этот импорт в самом верху
+import Head from 'next/head';
+import MessageBoard from "../components/MessageBoard";
 
 export default function Home() {
   
-  // Это ссылка на ваш сайт
+  // Настройки для Farcaster (чтобы работала кнопка Launch)
   const appUrl = 'https://base-message-board-app.vercel.app';
   
-  // Это конфигурация фрейма (Farcaster Frame v2)
   const frameMetadata = JSON.stringify({
     version: "next",
-    imageUrl: `${appUrl}/icon.png`, // Картинка из папки public
+    imageUrl: `${appUrl}/icon.png`,
     button: {
       title: "Launch App",
       action: {
@@ -22,24 +22,22 @@ export default function Home() {
   });
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
+    <>
       <Head>
-        {/* 2. Вот эти теги нужны для Farcaster: */}
         <title>Base Message Board</title>
-        <meta name="description" content="My Farcaster Mini App" />
+        <meta name="description" content="Decentralized message board on Base Network" />
         
-        {/* Главный тег для Mini App */}
+        {/* Главная настройка для Mini App */}
         <meta name="fc:frame" content={frameMetadata} />
         
-        {/* Дополнительные теги для красоты (Open Graph) */}
+        {/* Open Graph (для красивых ссылок в Telegram/Twitter) */}
         <meta property="og:title" content="Base Message Board" />
+        <meta property="og:description" content="Leave your mark on the Base blockchain forever." />
         <meta property="og:image" content={`${appUrl}/icon.png`} />
       </Head>
 
-      <main>
-        <h1>Welcome to my Farcaster App</h1>
-        <p>Если вы видите этот текст, значит сайт работает.</p>
-      </main>
-    </div>
+      {/* Сам компонент приложения с сообщениями */}
+      <MessageBoard />
+    </>
   );
 }
