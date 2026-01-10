@@ -1,4 +1,4 @@
-import { sdk } from "@farcaster/frame-sdk"; // <--- 1. Добавили импорт SDK
+import { sdk } from "@farcaster/frame-sdk"; // 1. Импорт SDK
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 
@@ -18,19 +18,22 @@ export default function MessageBoard() {
   const [text, setText] = useState("");
   const [messagesList, setMessagesList] = useState([]);
 
-  // <--- 2. Добавляем эффект, который сообщает Farcaster, что фрейм загрузился
+  // 2. Сообщаем Farcaster, что фрейм готов
   useEffect(() => {
     sdk.actions.ready();
   }, []);
 
   async function connectWallet() {
-    if (!window.ethereum) {
-      alert("Install wallet!");
+    // 3. ИЩЕМ КОШЕЛЕК: Сначала пробуем взять из SDK (Farcaster), если нет — ищем window.ethereum (MetaMask)
+    const ethProvider = sdk.wallet.ethProvider || window.ethereum;
+
+    if (!ethProvider) {
+      alert("Кошелек не найден! Попробуй открыть через Warpcast или установи кошелек.");
       return;
     }
 
     try {
-      const _provider = new ethers.BrowserProvider(window.ethereum);
+      const _provider = new ethers.BrowserProvider(ethProvider);
       const signer = await _provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
@@ -40,26 +43,21 @@ export default function MessageBoard() {
       await loadMessages(contract, _provider);
     } catch (error) {
       console.error("Connection error:", error);
+      alert("Ошибка подключения: " + (error.message || error));
     }
   }
 
   async function loadMessages(contract, provider) {
     if (!contract && !provider) return;
 
-    // Используем провайдера для чтения (не нужен signer/газ)
-    // Если contractInstance еще нет, создаем "читающий" инстанс
     const readContract = contract || new ethers.Contract(contractAddress, abi, provider);
 
     try {
-      // В твоем контракте есть функция getMessages(), которая возвращает МАССИВ
       const rawMessages = await readContract.getMessages();
       
-      // Преобразуем данные из формата блокчейна в удобный JS объект
-      // Делаем reverse(), чтобы новые сообщения были сверху
       const items = rawMessages.map(msg => ({
         from: msg.user,
         text: msg.text,
-        // Конвертируем BigInt timestamp в дату
         time: new Date(Number(msg.timestamp) * 1000).toLocaleString()
       })).reverse();
 
@@ -77,17 +75,13 @@ export default function MessageBoard() {
         return;
       }
 
-      // Твой контракт требует минимум 0.000001 ETH.
-      // Отправим чуть больше для гарантии.
       const fee = ethers.parseEther("0.000001"); 
 
       const tx = await contractInstance.postMessage(text, { value: fee });
       
-      // Ждем подтверждения транзакции
       await tx.wait();
 
       setText("");
-      // Перезагружаем список после успешной публикации
       await loadMessages(contractInstance, provider);
       alert("Message posted!");
 
@@ -98,10 +92,11 @@ export default function MessageBoard() {
   }
 
   useEffect(() => {
-    // Если кошелек уже подключен, пробуем подгрузить сообщения
-    if (window.ethereum) {
-        const _provider = new ethers.BrowserProvider(window.ethereum);
-        // Можно загрузить сообщения даже без подключения кошелька (read-only)
+    // 4. АВТО-ЗАГРУЗКА: Тоже проверяем оба варианта провайдера
+    const ethProvider = sdk.wallet.ethProvider || window.ethereum;
+
+    if (ethProvider) {
+        const _provider = new ethers.BrowserProvider(ethProvider);
         const readContract = new ethers.Contract(contractAddress, abi, _provider);
         loadMessages(readContract, _provider);
     }
