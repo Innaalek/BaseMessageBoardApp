@@ -26,7 +26,6 @@ export default function MessageBoard() {
   }, []);
 
   useEffect(() => {
-    // Инициализация Farcaster (для телефона)
     const init = async () => {
       try {
         if (sdk && sdk.actions) {
@@ -38,20 +37,17 @@ export default function MessageBoard() {
     loadMessages();
   }, []);
 
-  // --- 1. Простой выбор провайдера ---
+  // --- Вспомогательная функция для получения провайдера ---
   const getProvider = () => {
-    // Если открыто в Warpcast
     if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
       return new ethers.BrowserProvider(sdk.wallet.ethProvider);
     }
-    // Если открыто в обычном браузере
     if (typeof window !== "undefined" && window.ethereum) {
       return new ethers.BrowserProvider(window.ethereum);
     }
     return null;
   };
 
-  // --- 2. Смена сети (только если нужно) ---
   const checkNetwork = async (provider) => {
     try {
       const network = await provider.getNetwork();
@@ -60,7 +56,6 @@ export default function MessageBoard() {
         await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
       }
     } catch (error) {
-      // Если сети нет, просим добавить
       if (error.code === 4902 || error.error?.code === 4902) {
          await provider.send("wallet_addEthereumChain", [{
             chainId: BASE_CHAIN_ID_HEX,
@@ -73,45 +68,54 @@ export default function MessageBoard() {
     }
   };
 
-  // --- 3. Подключение ---
+  // --- ИСПРАВЛЕНИЕ 1: Подключение кошелька ---
   async function connectWallet() {
     try {
-      const provider = getProvider();
-      if (!provider) {
-        alert("MetaMask not found!");
-        return;
-      }
-
       addLog("Connecting...");
       
-      // Стандартный запрос Ethers
-      const accounts = await provider.send("eth_requestAccounts", []);
-      if (!accounts[0]) return;
+      let provider;
 
+      // 1. Сценарий: Warpcast / Farcaster
+      if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
+         provider = new ethers.BrowserProvider(sdk.wallet.ethProvider);
+         // Тут запрашиваем аккаунты через провайдер SDK
+         await provider.send("eth_requestAccounts", []);
+      } 
+      // 2. Сценарий: Обычный браузер (Chrome + MetaMask)
+      else if (typeof window !== "undefined" && window.ethereum) {
+         // !!! ВАЖНО: Запрашиваем доступ НАПРЯМУЮ, минуя глюк Ethers v6
+         await window.ethereum.request({ method: "eth_requestAccounts" });
+         provider = new ethers.BrowserProvider(window.ethereum);
+      } else {
+         alert("Wallet not found!");
+         return;
+      }
+
+      // После получения прав, проверяем сеть и берем данные
       await checkNetwork(provider);
-
-      setUserAddress(accounts[0]);
       
-      const bal = await provider.getBalance(accounts[0]);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      setUserAddress(address);
+      
+      const bal = await provider.getBalance(address);
       setBalance(ethers.formatEther(bal));
       
-      addLog("Connected: " + accounts[0].slice(0,6));
+      addLog("Connected: " + address.slice(0,6));
       loadMessages();
 
     } catch (error) {
-      addLog("Error: " + error.message);
-      // Если запрос уже висит, подсказываем юзеру
-      if (error.message.includes("Already processing") || error.code === -32002) {
-        alert("Посмотрите на иконку MetaMask! Там висит запрос на подключение.");
-      } else {
-        alert("Connection Error: " + error.message);
+      addLog("Connect Error: " + error.message);
+      console.error(error);
+      if (error.code === -32002) {
+        alert("Запрос уже висит в MetaMask. Откройте расширение!");
       }
     }
   }
 
-  // --- 4. Загрузка ---
   async function loadMessages() {
     try {
+      // Используем публичный RPC для чтения, чтобы не зависеть от кошелька
       const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
       const contract = new ethers.Contract(contractAddress, abi, provider);
       const rawMessages = await contract.getMessages();
@@ -125,7 +129,7 @@ export default function MessageBoard() {
     } catch (error) { console.error(error); }
   }
 
-  // --- 5. Публикация ---
+  // --- ИСПРАВЛЕНИЕ 2: Публикация с ожиданием ---
   async function handlePublish() {
     if (!userAddress) {
       await connectWallet();
@@ -135,31 +139,37 @@ export default function MessageBoard() {
     try {
       setIsSending(true);
       const provider = getProvider();
-      await checkNetwork(provider); // Проверяем сеть перед отправкой
+      await checkNetwork(provider);
       
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
-      // Отправка (с защитой от зависания)
+      // 1. Отправляем транзакцию
+      addLog("Sending transaction...");
       const tx = await contract.postMessage(text, { 
-        value: ethers.parseEther("0.000001"),
-        gasLimit: 500000 
+        value: ethers.parseEther("0.000001")
+        // gasLimit убрали, пусть MM сам считает, так надежнее
       });
       
       setText("");
-      setMessagesList([{from: userAddress, text: text, time: "Pending..."}, ...messagesList]);
+      // Показываем фейковое сообщение "Pending", пока ждем
+      setMessagesList([{from: userAddress, text: text, time: "Mining..."}, ...messagesList]);
       
-      // Ждем 5 секунд и обновляем, даже если MetaMask молчит
-      addLog("Sent! Waiting for update...");
-      await new Promise(r => setTimeout(r, 5000));
+      // 2. !!! САМОЕ ВАЖНОЕ: Ждем подтверждения блока !!!
+      addLog("Waiting for block confirmation...");
+      const receipt = await tx.wait(); // Ждем, пока транзакция реально запишется в блокчейн
       
-      setIsSending(false);
+      addLog("Mined in block: " + receipt.blockNumber);
+      
+      // 3. Только теперь обновляем список
       await loadMessages();
 
     } catch (err) {
+      console.error(err);
+      addLog("Error: " + (err.shortMessage || err.message));
+      alert("Error: " + (err.shortMessage || err.message));
+    } finally {
       setIsSending(false);
-      addLog("Error: " + err.message);
-      alert("Error sending: " + err.message);
     }
   }
 
@@ -173,7 +183,7 @@ export default function MessageBoard() {
             onClick={connectWallet} 
             style={{padding: "12px 24px", background: "#0052FF", color: "white", border: "none", borderRadius: "10px", fontSize: "16px", cursor: "pointer"}}
           >
-             Connect Wallet
+              Connect Wallet
           </button>
         ) : (
           <div>
