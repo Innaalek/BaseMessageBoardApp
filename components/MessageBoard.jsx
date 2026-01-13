@@ -73,7 +73,7 @@ export default function MessageBoard() {
     }
   };
 
-  // --- 3. Подключение ---
+  // --- 3. Подключение (С ИСПРАВЛЕНИЕМ ДЛЯ БРАУЗЕРА) ---
   async function connectWallet() {
     try {
       const provider = getProvider();
@@ -84,8 +84,18 @@ export default function MessageBoard() {
 
       addLog("Connecting...");
       
-      // Стандартный запрос Ethers
-      const accounts = await provider.send("eth_requestAccounts", []);
+      let accounts;
+
+      // === ВОТ ЗДЕСЬ ИСПРАВЛЕНИЕ ===
+      // Если это обычный браузер (Chrome/MetaMask), запрашиваем напрямую, чтобы не было ошибки -32603
+      if (typeof window !== "undefined" && window.ethereum && (!sdk || !sdk.wallet || !sdk.wallet.ethProvider)) {
+          accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      } else {
+          // Если это Farcaster/Base App, используем твой старый метод (он там работает отлично)
+          accounts = await provider.send("eth_requestAccounts", []);
+      }
+      // ==============================
+
       if (!accounts[0]) return;
 
       await checkNetwork(provider);
@@ -173,7 +183,7 @@ export default function MessageBoard() {
             onClick={connectWallet} 
             style={{padding: "12px 24px", background: "#0052FF", color: "white", border: "none", borderRadius: "10px", fontSize: "16px", cursor: "pointer"}}
           >
-             Connect Wallet
+              Connect Wallet
           </button>
         ) : (
           <div>
