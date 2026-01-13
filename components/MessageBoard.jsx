@@ -26,6 +26,7 @@ export default function MessageBoard() {
   }, []);
 
   useEffect(() => {
+    // Инициализация Farcaster (для телефона)
     const init = async () => {
       try {
         if (sdk && sdk.actions) {
@@ -37,18 +38,20 @@ export default function MessageBoard() {
     loadMessages();
   }, []);
 
-  // --- 1. Вспомогательная функция (только создает объект, не подключает) ---
+  // --- 1. Простой выбор провайдера ---
   const getProvider = () => {
+    // Если открыто в Warpcast
     if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
       return new ethers.BrowserProvider(sdk.wallet.ethProvider);
     }
+    // Если открыто в обычном браузере
     if (typeof window !== "undefined" && window.ethereum) {
       return new ethers.BrowserProvider(window.ethereum);
     }
     return null;
   };
 
-  // --- 2. Смена сети ---
+  // --- 2. Смена сети (только если нужно) ---
   const checkNetwork = async (provider) => {
     try {
       const network = await provider.getNetwork();
@@ -57,6 +60,7 @@ export default function MessageBoard() {
         await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
       }
     } catch (error) {
+      // Если сети нет, просим добавить
       if (error.code === 4902 || error.error?.code === 4902) {
          await provider.send("wallet_addEthereumChain", [{
             chainId: BASE_CHAIN_ID_HEX,
@@ -69,46 +73,25 @@ export default function MessageBoard() {
     }
   };
 
-  // --- 3. ПОДКЛЮЧЕНИЕ (ЖЕЛЕЗОБЕТОННЫЙ ВАРИАНТ) ---
+  // --- 3. Подключение ---
   async function connectWallet() {
-    addLog("Starting connection...");
-    
-    let accounts = [];
-    let provider = null;
-
     try {
-      // ПРОВЕРКА: Мы в Farcaster или в Браузере?
-      const isFarcaster = sdk && sdk.wallet && sdk.wallet.ethProvider;
-
-      if (isFarcaster) {
-        // === ЛОГИКА ДЛЯ FARCASTER (Раз она работает - не дышим на нее) ===
-        provider = new ethers.BrowserProvider(sdk.wallet.ethProvider);
-        accounts = await provider.send("eth_requestAccounts", []);
-      
-      } else {
-        // === ЛОГИКА ДЛЯ БРАУЗЕРА (CHROME/METAMASK) ===
-        // Здесь мы НЕ используем ethers для вызова окна, чтобы избежать ошибки -32603
-        if (typeof window !== "undefined" && window.ethereum) {
-           // Чистый запрос напрямую в MetaMask
-           accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-           
-           // Только ПОСЛЕ того как получили аккаунт, создаем провайдер ethers
-           provider = new ethers.BrowserProvider(window.ethereum);
-        } else {
-           alert("MetaMask не найден! Установите расширение.");
-           return;
-        }
-      }
-
-      if (!accounts || accounts.length === 0) {
-        addLog("No accounts returned");
+      const provider = getProvider();
+      if (!provider) {
+        alert("MetaMask not found!");
         return;
       }
 
-      // Общая логика после успешного подключения
+      addLog("Connecting...");
+      
+      // Стандартный запрос Ethers
+      const accounts = await provider.send("eth_requestAccounts", []);
+      if (!accounts[0]) return;
+
       await checkNetwork(provider);
 
       setUserAddress(accounts[0]);
+      
       const bal = await provider.getBalance(accounts[0]);
       setBalance(ethers.formatEther(bal));
       
@@ -116,16 +99,12 @@ export default function MessageBoard() {
       loadMessages();
 
     } catch (error) {
-      console.error("Connection critical error:", error);
-      addLog("Err: " + error.message);
-      
-      // Разбор частых ошибок
-      if (error.code === -32002) {
-        alert("Запрос на подключение уже висит! Откройте расширение MetaMask вручную.");
-      } else if (error.message && error.message.includes("rejected")) {
-        // Пользователь нажал Отмена - ничего не делаем
+      addLog("Error: " + error.message);
+      // Если запрос уже висит, подсказываем юзеру
+      if (error.message.includes("Already processing") || error.code === -32002) {
+        alert("Посмотрите на иконку MetaMask! Там висит запрос на подключение.");
       } else {
-        alert("Ошибка подключения: " + (error.message || "Unknown error"));
+        alert("Connection Error: " + error.message);
       }
     }
   }
@@ -155,12 +134,13 @@ export default function MessageBoard() {
 
     try {
       setIsSending(true);
-      const provider = getProvider(); // Получаем провайдер для отправки
-      await checkNetwork(provider);
+      const provider = getProvider();
+      await checkNetwork(provider); // Проверяем сеть перед отправкой
       
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
+      // Отправка (с защитой от зависания)
       const tx = await contract.postMessage(text, { 
         value: ethers.parseEther("0.000001"),
         gasLimit: 500000 
@@ -169,9 +149,8 @@ export default function MessageBoard() {
       setText("");
       setMessagesList([{from: userAddress, text: text, time: "Pending..."}, ...messagesList]);
       
+      // Ждем 5 секунд и обновляем, даже если MetaMask молчит
       addLog("Sent! Waiting for update...");
-      
-      // Ждем 5 секунд (как в твоем рабочем варианте)
       await new Promise(r => setTimeout(r, 5000));
       
       setIsSending(false);
@@ -194,7 +173,7 @@ export default function MessageBoard() {
             onClick={connectWallet} 
             style={{padding: "12px 24px", background: "#0052FF", color: "white", border: "none", borderRadius: "10px", fontSize: "16px", cursor: "pointer"}}
           >
-              Connect Wallet
+             Connect Wallet
           </button>
         ) : (
           <div>
