@@ -173,7 +173,7 @@ export default function MessageBoard() {
             onClick={connectWallet} 
             style={{padding: "12px 24px", background: "#0052FF", color: "white", border: "none", borderRadius: "10px", fontSize: "16px", cursor: "pointer"}}
           >
-              Connect Wallet
+             Connect Wallet
           </button>
         ) : (
           <div>
