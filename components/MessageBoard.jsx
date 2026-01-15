@@ -13,11 +13,11 @@ const abi = [
 
 export default function MessageBoard() {
   const [userAddress, setUserAddress] = useState("");
+  const [balance, setBalance] = useState("0");
   const [messagesList, setMessagesList] = useState([]);
   const [isSending, setIsSending] = useState(false);
   const [text, setText] = useState("");
   const [logs, setLogs] = useState([]);
-  const [mode, setMode] = useState("Detecting...");
 
   const addLog = useCallback((msg) => {
     const time = new Date().toLocaleTimeString();
@@ -26,13 +26,11 @@ export default function MessageBoard() {
   }, []);
 
   useEffect(() => {
+    // Инициализация Farcaster (для телефона)
     const init = async () => {
       try {
         if (sdk && sdk.actions) {
           await sdk.actions.ready();
-          setMode("Farcaster");
-        } else {
-          setMode("Browser");
         }
       } catch (e) { console.error(e); }
     };
@@ -40,63 +38,78 @@ export default function MessageBoard() {
     loadMessages();
   }, []);
 
-  // --- ЧИСТОЕ ПОДКЛЮЧЕНИЕ (БЕЗ ETHERS В БРАУЗЕРЕ) ---
-  async function connectWallet() {
-    addLog("Connect v4 clicked...");
-    
+  // --- 1. Простой выбор провайдера ---
+  const getProvider = () => {
+    // Если открыто в Warpcast
+    if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
+      return new ethers.BrowserProvider(sdk.wallet.ethProvider);
+    }
+    // Если открыто в обычном браузере
+    if (typeof window !== "undefined" && window.ethereum) {
+      return new ethers.BrowserProvider(window.ethereum);
+    }
+    return null;
+  };
+
+  // --- 2. Смена сети (только если нужно) ---
+  const checkNetwork = async (provider) => {
     try {
-      let accounts = [];
-
-      // 1. Сценарий: FARCASTER (Работает - не трогаем)
-      if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
-         addLog("Connecting via Farcaster SDK...");
-         const provider = new ethers.BrowserProvider(sdk.wallet.ethProvider);
-         accounts = await provider.send("eth_requestAccounts", []);
-      } 
-      // 2. Сценарий: БРАУЗЕР (Chrome/MetaMask)
-      else if (typeof window !== "undefined" && window.ethereum) {
-         addLog("Connecting via Native Window.Ethereum...");
-         
-         // !!! АБСОЛЮТНО ЧИСТЫЙ JS. НИКАКОГО ETHERS.JS !!!
-         // Если здесь упадет ошибка, то это проблема самого MetaMask, а не библиотеки.
-         accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-         
-         // Мы СПЕЦИАЛЬНО не создаем здесь provider, чтобы не злить Ethers.js
-      } 
-      else {
-         alert("Кошелек не найден!");
-         return;
+      const network = await provider.getNetwork();
+      if (Number(network.chainId) !== BASE_CHAIN_ID_DECIMAL) {
+        addLog("Switching network...");
+        await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
       }
+    } catch (error) {
+      // Если сети нет, просим добавить
+      if (error.code === 4902 || error.error?.code === 4902) {
+         await provider.send("wallet_addEthereumChain", [{
+            chainId: BASE_CHAIN_ID_HEX,
+            chainName: 'Base Mainnet',
+            rpcUrls: ['https://mainnet.base.org'],
+            nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+            blockExplorerUrls: ['https://basescan.org'],
+         }]);
+      }
+    }
+  };
 
-      if (!accounts || !accounts[0]) {
-        addLog("No accounts returned");
+  // --- 3. Подключение ---
+  async function connectWallet() {
+    try {
+      const provider = getProvider();
+      if (!provider) {
+        alert("MetaMask not found!");
         return;
       }
 
-      // Просто сохраняем адрес. Сеть проверим потом.
-      setUserAddress(accounts[0]);
-      addLog("Connected: " + accounts[0].slice(0,6));
+      addLog("Connecting...");
       
-      // Обновляем сообщения
+      // Стандартный запрос Ethers
+      const accounts = await provider.send("eth_requestAccounts", []);
+      if (!accounts[0]) return;
+
+      await checkNetwork(provider);
+
+      setUserAddress(accounts[0]);
+      
+      const bal = await provider.getBalance(accounts[0]);
+      setBalance(ethers.formatEther(bal));
+      
+      addLog("Connected: " + accounts[0].slice(0,6));
       loadMessages();
 
     } catch (error) {
-      addLog("ERR: " + error.message);
-      console.error("Connect Error:", error);
-      
-      // Обработка отказа пользователя
-      if (error.code === 4001) {
-         alert("Вы отменили подключение.");
-      } else if (error.code === -32002) {
-         alert("Запрос висит в MetaMask! Откройте лису.");
+      addLog("Error: " + error.message);
+      // Если запрос уже висит, подсказываем юзеру
+      if (error.message.includes("Already processing") || error.code === -32002) {
+        alert("Посмотрите на иконку MetaMask! Там висит запрос на подключение.");
       } else {
-         // Выводим "чистую" ошибку
-         alert("Ошибка: " + error.message);
+        alert("Connection Error: " + error.message);
       }
     }
   }
 
-  // --- Загрузка сообщений (Только чтение - безопасно) ---
+  // --- 4. Загрузка ---
   async function loadMessages() {
     try {
       const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
@@ -112,32 +125,7 @@ export default function MessageBoard() {
     } catch (error) { console.error(error); }
   }
 
-  // --- Смена сети (Native JS) ---
-  async function switchToBaseNative() {
-      if (!window.ethereum) return;
-      try {
-        await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: BASE_CHAIN_ID_HEX }],
-        });
-      } catch (switchError) {
-        // Если сети нет - добавляем (код 4902)
-        if (switchError.code === 4902) {
-            await window.ethereum.request({
-                method: 'wallet_addEthereumChain',
-                params: [{
-                    chainId: BASE_CHAIN_ID_HEX,
-                    chainName: 'Base Mainnet',
-                    rpcUrls: ['https://mainnet.base.org'],
-                    nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-                    blockExplorerUrls: ['https://basescan.org'],
-                }],
-            });
-        }
-      }
-  }
-
-  // --- Публикация (ЗДЕСЬ ПОДКЛЮЧАЕМ ETHERS) ---
+  // --- 5. Публикация ---
   async function handlePublish() {
     if (!userAddress) {
       await connectWallet();
@@ -146,33 +134,13 @@ export default function MessageBoard() {
 
     try {
       setIsSending(true);
+      const provider = getProvider();
+      await checkNetwork(provider); // Проверяем сеть перед отправкой
       
-      // 1. Создаем провайдер "на лету" только в момент отправки
-      let provider;
-      let signer;
-
-      if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
-         // Farcaster
-         provider = new ethers.BrowserProvider(sdk.wallet.ethProvider);
-         // Проверка сети для Farcaster (через Ethers)
-         const network = await provider.getNetwork();
-         if (Number(network.chainId) !== BASE_CHAIN_ID_DECIMAL) {
-             await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
-         }
-         signer = await provider.getSigner();
-      } else {
-         // Браузер
-         // Сначала проверяем сеть "нативным" методом
-         await switchToBaseNative();
-         
-         // Теперь безопасно создаем Ethers Provider
-         provider = new ethers.BrowserProvider(window.ethereum);
-         signer = await provider.getSigner();
-      }
-
+      const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
-      // 2. Отправка
+      // Отправка (с защитой от зависания)
       const tx = await contract.postMessage(text, { 
         value: ethers.parseEther("0.000001"),
         gasLimit: 500000 
@@ -181,25 +149,23 @@ export default function MessageBoard() {
       setText("");
       setMessagesList([{from: userAddress, text: text, time: "Pending..."}, ...messagesList]);
       
-      addLog("Sent! Waiting...");
-      await tx.wait(); // Ждем блока
+      // Ждем 5 секунд и обновляем, даже если MetaMask молчит
+      addLog("Sent! Waiting for update...");
+      await new Promise(r => setTimeout(r, 5000));
       
       setIsSending(false);
       await loadMessages();
 
     } catch (err) {
       setIsSending(false);
-      addLog("Error: " + (err.message || err));
-      alert("Error sending: " + (err.shortMessage || err.message));
+      addLog("Error: " + err.message);
+      alert("Error sending: " + err.message);
     }
   }
 
   return (
     <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto", fontFamily: "sans-serif", paddingBottom: "100px" }}>
-      <h2 style={{textAlign: "center"}}>Base Board v4.0 (Safe)</h2>
-      <div style={{textAlign: "center", fontSize: "12px", color: "#666", marginBottom: "10px"}}>
-        Mode: {mode}
-      </div>
+      <h2 style={{textAlign: "center"}}>Base Board</h2>
       
       <div style={{textAlign: "center", marginBottom: 20}}>
         {!userAddress ? (
@@ -212,6 +178,7 @@ export default function MessageBoard() {
         ) : (
           <div>
              <div style={{color: "green", fontWeight: "bold"}}>Connected: {userAddress.slice(0,6)}...</div>
+             <div style={{fontSize: "12px"}}>Balance: {parseFloat(balance).toFixed(4)} ETH</div>
           </div>
         )}
       </div>
