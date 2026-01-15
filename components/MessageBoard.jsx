@@ -67,7 +67,7 @@ export default function MessageBoard() {
       let provider;
 
       // 1. ПРОВЕРКА: Если это Farcaster (Warpcast)
-      // Тут оставляем твой старый метод, так как он работает
+      // Тут оставляем твой старый метод, так как он там работает
       if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
          addLog("Mode: Farcaster");
          provider = new ethers.BrowserProvider(sdk.wallet.ethProvider);
