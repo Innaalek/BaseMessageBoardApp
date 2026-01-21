@@ -38,6 +38,53 @@ export default function MessageBoard() {
     loadMessages();
   }, []);
 
+  // Add this useEffect to handle account/chain changes and cleanup
+useEffect(() => {
+  if (!window.ethereum && !(sdk?.wallet?.ethProvider)) return;
+  
+  const provider = getProvider();
+  if (!provider) return;
+
+  // Handle account changes
+  const handleAccountsChanged = (accounts) => {
+    if (accounts.length === 0) {
+      setUserAddress("");
+      setBalance("0");
+      addLog("Disconnected");
+    } else {
+      setUserAddress(accounts[0]);
+      addLog("Account changed");
+      loadMessages();
+    }
+  };
+
+  // Handle chain changes
+  const handleChainChanged = (chainId) => {
+    if (Number(chainId) !== BASE_CHAIN_ID_DECIMAL) {
+      addLog("Wrong network! Please switch to Base");
+    } else {
+      loadMessages();
+    }
+  };
+
+  // Handle disconnect
+  const handleDisconnect = () => {
+    setUserAddress("");
+    setBalance("0");
+    addLog("Disconnected");
+  };
+
+  provider.on("accountsChanged", handleAccountsChanged);
+  provider.on("chainChanged", handleChainChanged);
+  provider.on("disconnect", handleDisconnect);
+
+  return () => {
+    provider.removeListener("accountsChanged", handleAccountsChanged);
+    provider.removeListener("chainChanged", handleChainChanged);
+    provider.removeListener("disconnect", handleDisconnect);
+  };
+}, [addLog]);
+
   // --- 1. Простой выбор провайдера ---
   const getProvider = () => {
     // Если открыто в Warpcast
