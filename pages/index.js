@@ -38,6 +38,10 @@ export default function Home() {
       <Head>
         <title>Base Message Board</title>
         <meta name="description" content="Decentralized message board on Base Network" />
+        
+        {/* ВОТ ЭТУ СТРОКУ МЫ ДОБАВИЛИ ДЛЯ ВЕРИФИКАЦИИ: */}
+        <meta name="base:app_id" content="6977e03888e3bac59cf3da4f" />
+        
         <meta name="fc:frame" content={frameMetadata} />
         <meta property="og:title" content="Base Message Board" />
         <meta property="og:image" content={`${appUrl}/icon.png`} />
