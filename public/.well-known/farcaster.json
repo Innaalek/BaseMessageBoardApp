@@ -3,6 +3,16 @@
     "header": "eyJmaWQiOjI5NjQyMiwidHlwZSI6ImF1dGgiLCJrZXkiOiIweDA0MkMxNUM5NjExZmU0QjIzNWVkODc1MTRiOTAwMjVDMjUwYWIxNjUifQ",
     "payload": "eyJkb21haW4iOiJiYXNlLW1lc3NhZ2UtYm9hcmQtYXBwLnZlcmNlbC5hcHAifQ",
     "signature": "qgKruj3qh+GeFWd6S/7wR05rjT9wnltcRrS1EWekZ1VULG/80gCyT0dVg+14srRWoeygdgnOR5uOpPtdofl5Ixs="
+  },
+  "frame": {
+    "version": "1",
+    "name": "Base Message Board",
+    "iconUrl": "https://base-message-board-app.vercel.app/icon.png",
+    "homeUrl": "https://base-message-board-app.vercel.app",
+    "imageUrl": "https://base-message-board-app.vercel.app/icon.png",
+    "buttonTitle": "Launch App",
+    "splashImageUrl": "https://base-message-board-app.vercel.app/icon.png",
+    "splashBackgroundColor": "#ffffff",
+    "webhookUrl": "https://base-message-board-app.vercel.app/api/event"
   }
 }
-
