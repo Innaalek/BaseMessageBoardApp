@@ -1,3 +1,4 @@
+
 import sdk from "@farcaster/frame-sdk";
 import { useState, useEffect, useCallback } from "react";
 import { ethers } from "ethers";
@@ -5,9 +6,6 @@ import { ethers } from "ethers";
 const contractAddress = "0x7cb7f14331DCAdefbDf9dd3AAeb596a305cbA3D2";
 const BASE_CHAIN_ID_HEX = "0x2105"; // 8453
 const BASE_CHAIN_ID_DECIMAL = 8453;
-
-// Твой Builder Code
-const BUILDER_CODE = "bc_tqtm5za5";
 
 const abi = [
   "function postMessage(string calldata _text) external payable",
@@ -29,6 +27,7 @@ export default function MessageBoard() {
   }, []);
 
   useEffect(() => {
+    // Инициализация Farcaster (для телефона)
     const init = async () => {
       try {
         if (sdk && sdk.actions) {
@@ -40,16 +39,20 @@ export default function MessageBoard() {
     loadMessages();
   }, []);
 
+  // --- 1. Простой выбор провайдера ---
   const getProvider = () => {
+    // Если открыто в Warpcast
     if (sdk && sdk.wallet && sdk.wallet.ethProvider) {
       return new ethers.BrowserProvider(sdk.wallet.ethProvider);
     }
+    // Если открыто в обычном браузере
     if (typeof window !== "undefined" && window.ethereum) {
       return new ethers.BrowserProvider(window.ethereum);
     }
     return null;
   };
 
+  // --- 2. Смена сети (только если нужно) ---
   const checkNetwork = async (provider) => {
     try {
       const network = await provider.getNetwork();
@@ -58,6 +61,7 @@ export default function MessageBoard() {
         await provider.send("wallet_switchEthereumChain", [{ chainId: BASE_CHAIN_ID_HEX }]);
       }
     } catch (error) {
+      // Если сети нет, просим добавить
       if (error.code === 4902 || error.error?.code === 4902) {
          await provider.send("wallet_addEthereumChain", [{
             chainId: BASE_CHAIN_ID_HEX,
@@ -70,6 +74,7 @@ export default function MessageBoard() {
     }
   };
 
+  // --- 3. Подключение ---
   async function connectWallet() {
     try {
       const provider = getProvider();
@@ -80,6 +85,7 @@ export default function MessageBoard() {
 
       addLog("Connecting...");
       
+      // Стандартный запрос Ethers
       const accounts = await provider.send("eth_requestAccounts", []);
       if (!accounts[0]) return;
 
@@ -95,6 +101,7 @@ export default function MessageBoard() {
 
     } catch (error) {
       addLog("Error: " + error.message);
+      // Если запрос уже висит, подсказываем юзеру
       if (error.message.includes("Already processing") || error.code === -32002) {
         alert("Посмотрите на иконку MetaMask! Там висит запрос на подключение.");
       } else {
@@ -103,6 +110,7 @@ export default function MessageBoard() {
     }
   }
 
+  // --- 4. Загрузка ---
   async function loadMessages() {
     try {
       const provider = new ethers.JsonRpcProvider("https://mainnet.base.org");
@@ -118,7 +126,7 @@ export default function MessageBoard() {
     } catch (error) { console.error(error); }
   }
 
-  // --- ВОТ ТУТ ГЛАВНАЯ МАГИЯ С КОДОМ ---
+  // --- 5. Публикация ---
   async function handlePublish() {
     if (!userAddress) {
       await connectWallet();
@@ -128,28 +136,21 @@ export default function MessageBoard() {
     try {
       setIsSending(true);
       const provider = getProvider();
-      await checkNetwork(provider);
+      await checkNetwork(provider); // Проверяем сеть перед отправкой
       
       const signer = await provider.getSigner();
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
-      // 1. Формируем транзакцию, но пока не отправляем
-      const populatedTx = await contract.postMessage.populateTransaction(text, { 
-        value: ethers.parseEther("0.000001")
+      // Отправка (с защитой от зависания)
+      const tx = await contract.postMessage(text, { 
+        value: ethers.parseEther("0.000001"),
+        gasLimit: 500000 
       });
-
-      // 2. Превращаем твой код bc_tqtm5za5 в HEX формат (набор букв и цифр для блокчейна)
-      const builderCodeHex = ethers.hexlify(ethers.toUtf8Bytes(BUILDER_CODE)).replace("0x", "");
-
-      // 3. Приклеиваем его в конец данных транзакции
-      populatedTx.data = populatedTx.data + builderCodeHex;
-
-      // 4. Отправляем модифицированную транзакцию
-      const tx = await signer.sendTransaction(populatedTx);
       
       setText("");
       setMessagesList([{from: userAddress, text: text, time: "Pending..."}, ...messagesList]);
       
+      // Ждем 5 секунд и обновляем, даже если MetaMask молчит
       addLog("Sent! Waiting for update...");
       await new Promise(r => setTimeout(r, 5000));
       
